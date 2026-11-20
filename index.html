@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AT-S4 · private content test</title>
+<style>
+  :root { color-scheme: light dark; --ok:#1a7f37; --bad:#cf222e; --warn:#9a6700; }
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; padding: 20px; max-width: 640px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 20px; opacity: .75; font-size: 14px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; box-sizing: border-box; font-size: 16px; padding: 12px; border-radius: 8px; border: 1px solid #8888; }
+  button { width: 100%; min-height: 48px; margin-top: 12px; font-size: 16px; font-weight: 600; border-radius: 8px; border: 0; background: #1f6feb; color: #fff; }
+  button.secondary { background: #8884; color: inherit; }
+  ol { padding-left: 20px; }
+  li { margin: 10px 0; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+  .detail { font-size: 13px; opacity: .8; word-break: break-word; }
+  #verdict { font-size: 18px; font-weight: 700; margin-top: 20px; }
+  .note { font-size: 13px; opacity: .75; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>AT-S4 · Can this browser read private content?</h1>
+<p class="sub">Week-1 risk test for the TNPSC app. Run it once on your phone.</p>
+
+<label for="token">Fine-grained GitHub token</label>
+<input id="token" type="password" autocomplete="off" placeholder="github_pat_…">
+<p class="note">The token stays in this page's memory only. It is never stored and is sent only to api.github.com.</p>
+<button id="run">Run test</button>
+
+<ol id="results"></ol>
+<div id="verdict"></div>
+<button id="open" class="secondary" hidden>Open the downloaded PDF</button>
+<button id="copy" class="secondary" hidden>Copy results to send back</button>
+
+<script>
+const OWNER = "arunkumarvel2705-sudo", REPO = "tnpsc-content";
+const JSON_PATH = "silver/tnpsc/ccse4_2025/final_key_496.json";          // plain Git file
+const PDF_PATH  = "bronze/tnpsc/ccse4_2025/final_answer_key.pdf";         // Git LFS file (248 KB)
+const api = p => `https://api.github.com/repos/${OWNER}/${REPO}/contents/${p}`;
+const results = document.getElementById("results");
+const log = [];
+let pdfBlob = null;
+
+function report(name, status, detail) {
+  const li = document.createElement("li");
+  const cls = status === "PASS" ? "ok" : status === "FAIL" ? "bad" : "warn";
+  li.innerHTML = `<b class="${cls}">${status}</b> ${name}<div class="detail"></div>`;
+  li.querySelector(".detail").textContent = detail;
+  results.appendChild(li);
+  log.push(`${status} | ${name} | ${detail}`);
+}
+
+async function firstBytes(resp, n = 40) {
+  const buf = new Uint8Array(await resp.clone().arrayBuffer());
+  return { text: new TextDecoder("latin1").decode(buf.slice(0, n)), size: buf.length };
+}
+
+async function step(name, fn) {
+  try { await fn(); }
+  catch (e) { report(name, "FAIL", `${e.name}: ${e.message} (a network/CORS block shows up as TypeError)`); }
+}
+
+document.getElementById("run").onclick = async () => {
+  results.innerHTML = ""; log.length = 0; pdfBlob = null;
+  document.getElementById("verdict").textContent = "";
+  document.getElementById("open").hidden = document.getElementById("copy").hidden = true;
+  const token = document.getElementById("token").value.trim();
+  if (!token) { report("Token entered", "FAIL", "Paste the token first."); return; }
+  const auth = { Authorization: `Bearer ${token}` };
+  log.push(`browser: ${navigator.userAgent}`, `time: ${new Date().toISOString()}`);
+
+  await step("1. Content is NOT readable without a token", async () => {
+    const r = await fetch(api(JSON_PATH), { headers: { Accept: "application/vnd.github.raw+json" } });
+    report("1. Content is NOT readable without a token", r.status === 404 || r.status === 401 ? "PASS" : "FAIL",
+           `HTTP ${r.status} (404 or 401 means the private repo is hidden)`);
+  });
+
+  await step("2. Read a plain JSON file with the token", async () => {
+    const r = await fetch(api(JSON_PATH), { headers: { ...auth, Accept: "application/vnd.github.raw+json" } });
+    if (!r.ok) return report("2. Read a plain JSON file with the token", "FAIL", `HTTP ${r.status}`);
+    const j = await r.json();
+    report("2. Read a plain JSON file with the token", j.accepted ? "PASS" : "FAIL",
+           `HTTP ${r.status}; ${Object.keys(j.accepted || {}).length} answers read`);
+  });
+
+  let viaRaw = false;
+  await step("3. Read the LFS PDF via the contents API (raw)", async () => {
+    const r = await fetch(api(PDF_PATH), { headers: { ...auth, Accept: "application/vnd.github.raw+json" } });
+    if (!r.ok) return report("3. Read the LFS PDF via the contents API (raw)", "FAIL", `HTTP ${r.status}`);
+    const { text, size } = await firstBytes(r);
+    if (text.startsWith("%PDF")) { viaRaw = true; pdfBlob = new Blob([await r.arrayBuffer()], { type: "application/pdf" });
+      report("3. Read the LFS PDF via the contents API (raw)", "PASS", `real PDF, ${size} bytes`); }
+    else report("3. Read the LFS PDF via the contents API (raw)", "INFO",
+                text.startsWith("version https://git-lfs") ? `got only the LFS pointer (${size} bytes)` : `unexpected start: ${text}`);
+  });
+
+  if (!viaRaw) await step("4. Read the LFS PDF via its download link", async () => {
+    const meta = await fetch(api(PDF_PATH), { headers: { ...auth, Accept: "application/vnd.github.object+json" } });
+    if (!meta.ok) return report("4. Read the LFS PDF via its download link", "FAIL", `metadata HTTP ${meta.status}`);
+    const url = (await meta.json()).download_url;
+    if (!url) return report("4. Read the LFS PDF via its download link", "FAIL", "no download_url returned");
+    let r;
+    try { r = await fetch(url); } catch (e) { r = null; log.push(`4a without auth header: ${e.message}`); }
+    if (!r || !r.ok) r = await fetch(url, { headers: auth });
+    const { text, size } = await firstBytes(r);
+    if (r.ok && text.startsWith("%PDF")) { pdfBlob = new Blob([await r.arrayBuffer()], { type: "application/pdf" });
+      report("4. Read the LFS PDF via its download link", "PASS", `real PDF, ${size} bytes, from ${new URL(url).host}`); }
+    else report("4. Read the LFS PDF via its download link", "FAIL", `HTTP ${r.status}; starts: ${text}`);
+  });
+
+  const ok = log.some(l => l.startsWith("PASS | 2.")) && !!pdfBlob && log.some(l => l.startsWith("PASS | 1."));
+  const v = document.getElementById("verdict");
+  v.textContent = ok ? "AT-S4 PASSED: this browser can read private content, and only with the token."
+                     : "AT-S4 NOT passed. Tap 'Copy results' and send them to Claude.";
+  v.className = ok ? "ok" : "bad";
+  log.push(`VERDICT: ${ok ? "PASS" : "FAIL"}`);
+  document.getElementById("open").hidden = !pdfBlob;
+  document.getElementById("copy").hidden = false;
+};
+
+document.getElementById("open").onclick = () => { if (pdfBlob) window.open(URL.createObjectURL(pdfBlob), "_blank"); };
+document.getElementById("copy").onclick = async () => {
+  const text = log.join("\n");
+  try { await navigator.clipboard.writeText(text); document.getElementById("copy").textContent = "Copied"; }
+  catch { const t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select(); }
+};
+</script>
+</body>
+</html>
