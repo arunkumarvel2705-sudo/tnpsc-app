@@ -73,47 +73,71 @@ document.getElementById("run").onclick = async () => {
   log.push(`browser: ${navigator.userAgent}`, `time: ${new Date().toISOString()}`);
 
   await step("1. Content is NOT readable without a token", async () => {
-    const r = await fetch(api(JSON_PATH), { headers: { Accept: "application/vnd.github.raw+json" } });
+    const r = await fetch(api(JSON_PATH), { cache: "no-store", headers: { Accept: "application/vnd.github.raw+json" } });
     report("1. Content is NOT readable without a token", r.status === 404 || r.status === 401 ? "PASS" : "FAIL",
            `HTTP ${r.status} (404 or 401 means the private repo is hidden)`);
   });
 
   await step("2. Read a plain JSON file with the token", async () => {
-    const r = await fetch(api(JSON_PATH), { headers: { ...auth, Accept: "application/vnd.github.raw+json" } });
+    const r = await fetch(api(JSON_PATH), { cache: "no-store", headers: { ...auth, Accept: "application/vnd.github.raw+json" } });
     if (!r.ok) return report("2. Read a plain JSON file with the token", "FAIL", `HTTP ${r.status}`);
     const j = await r.json();
     report("2. Read a plain JSON file with the token", j.accepted ? "PASS" : "FAIL",
            `HTTP ${r.status}; ${Object.keys(j.accepted || {}).length} answers read`);
   });
 
-  let viaRaw = false;
-  await step("3. Read the LFS PDF via the contents API (raw)", async () => {
-    const r = await fetch(api(PDF_PATH), { headers: { ...auth, Accept: "application/vnd.github.raw+json" } });
-    if (!r.ok) return report("3. Read the LFS PDF via the contents API (raw)", "FAIL", `HTTP ${r.status}`);
-    const { text, size } = await firstBytes(r);
-    if (text.startsWith("%PDF")) { viaRaw = true; pdfBlob = new Blob([await r.arrayBuffer()], { type: "application/pdf" });
-      report("3. Read the LFS PDF via the contents API (raw)", "PASS", `real PDF, ${size} bytes`); }
-    else report("3. Read the LFS PDF via the contents API (raw)", "INFO",
-                text.startsWith("version https://git-lfs") ? `got only the LFS pointer (${size} bytes)` : `unexpected start: ${text}`);
+  // Each LFS method: PASS if it returns the real PDF, INFO if it returns only the pointer, FAIL otherwise.
+  let pointer = null;
+  async function tryPdf(name, doFetch) {
+    await step(name, async () => {
+      const r = await doFetch();
+      if (!r) return;
+      const { text, size } = await firstBytes(r);
+      if (r.ok && text.startsWith("%PDF")) {
+        if (!pdfBlob) pdfBlob = new Blob([await r.arrayBuffer()], { type: "application/pdf" });
+        report(name, "PASS", `real PDF, ${size} bytes`);
+      } else if (r.ok && text.startsWith("version https://git-lfs")) {
+        pointer = pointer || new TextDecoder().decode(await r.arrayBuffer());
+        report(name, "INFO", `got only the LFS pointer (${size} bytes)`);
+      } else report(name, "FAIL", `HTTP ${r.status}; starts: ${text.slice(0, 30)}`);
+    });
+  }
+
+  await tryPdf("3. LFS PDF via contents API (raw)", () =>
+    fetch(api(PDF_PATH), { cache: "no-store", headers: { ...auth, Accept: "application/vnd.github.raw+json" } }));
+
+  await tryPdf("4a. LFS PDF via the file's download_url", async () => {
+    const meta = await fetch(api(PDF_PATH), { cache: "no-store", headers: { ...auth, Accept: "application/vnd.github+json" } });
+    const body = await meta.text();
+    let url = null;
+    try { url = JSON.parse(body).download_url; } catch { /* not JSON */ }
+    if (!url) { report("4a. LFS PDF via the file's download_url", "FAIL", `HTTP ${meta.status}; no download_url (${body.slice(0, 30)})`); return null; }
+    log.push(`4a download host: ${new URL(url).host}`);
+    return fetch(url, { cache: "no-store" });
   });
 
-  if (!viaRaw) await step("4. Read the LFS PDF via its download link", async () => {
-    const meta = await fetch(api(PDF_PATH), { headers: { ...auth, Accept: "application/vnd.github.object+json" } });
-    if (!meta.ok) return report("4. Read the LFS PDF via its download link", "FAIL", `metadata HTTP ${meta.status}`);
-    const url = (await meta.json()).download_url;
-    if (!url) return report("4. Read the LFS PDF via its download link", "FAIL", "no download_url returned");
-    let r;
-    try { r = await fetch(url); } catch (e) { r = null; log.push(`4a without auth header: ${e.message}`); }
-    if (!r || !r.ok) r = await fetch(url, { headers: auth });
-    const { text, size } = await firstBytes(r);
-    if (r.ok && text.startsWith("%PDF")) { pdfBlob = new Blob([await r.arrayBuffer()], { type: "application/pdf" });
-      report("4. Read the LFS PDF via its download link", "PASS", `real PDF, ${size} bytes, from ${new URL(url).host}`); }
-    else report("4. Read the LFS PDF via its download link", "FAIL", `HTTP ${r.status}; starts: ${text}`);
+  await tryPdf("4b. LFS PDF via media.githubusercontent.com", () =>
+    fetch(`https://media.githubusercontent.com/media/${OWNER}/${REPO}/main/${PDF_PATH}`, { cache: "no-store", headers: auth }));
+
+  await tryPdf("4c. LFS PDF via the Git LFS batch API", async () => {
+    const oid = (pointer || "").match(/sha256:([0-9a-f]{64})/), size = (pointer || "").match(/size (\d+)/);
+    if (!oid || !size) { report("4c. LFS PDF via the Git LFS batch API", "FAIL", "no pointer from step 3 to look up"); return null; }
+    const b = await fetch(`https://github.com/${OWNER}/${REPO}.git/info/lfs/objects/batch`, {
+      method: "POST", cache: "no-store",
+      headers: { Accept: "application/vnd.git-lfs+json", "Content-Type": "application/vnd.git-lfs+json",
+                 Authorization: `Basic ${btoa("x-access-token:" + token)}` },
+      body: JSON.stringify({ operation: "download", transfers: ["basic"],
+                             objects: [{ oid: oid[1], size: Number(size[1]) }] }) });
+    const j = await b.json();
+    const dl = j.objects?.[0]?.actions?.download;
+    if (!dl) { report("4c. LFS PDF via the Git LFS batch API", "FAIL", `HTTP ${b.status}; no download action`); return null; }
+    log.push(`4c download host: ${new URL(dl.href).host}`);
+    return fetch(dl.href, { cache: "no-store", headers: dl.header || {} });
   });
 
   const ok = log.some(l => l.startsWith("PASS | 2.")) && !!pdfBlob && log.some(l => l.startsWith("PASS | 1."));
   const v = document.getElementById("verdict");
-  v.textContent = ok ? "AT-S4 PASSED: this browser can read private content, and only with the token."
+  v.textContent = ok ? "AT-S4 PASSED: this browser can read private content and PDFs, and only with the token. Tap 'Copy results' and send them to Claude."
                      : "AT-S4 NOT passed. Tap 'Copy results' and send them to Claude.";
   v.className = ok ? "ok" : "bad";
   log.push(`VERDICT: ${ok ? "PASS" : "FAIL"}`);
