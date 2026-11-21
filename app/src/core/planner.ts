@@ -1,38 +1,40 @@
-// core/planner — skill, mistake and card states + date -> DailyPlan. (Agent: planner)
-// Contract is fixed; implement the bodies. Tests: AT-C9, AT-C10, AT-C11 and the rules below.
+// core/planner — skill, mistake and card states + date -> DailyPlan.
+// Tests: AT-C9, AT-C10, AT-C11 and the rules below. (Revised after independent review, findings 1, 5, 7, 10.)
 //
-// Focus topic: among topics with at least one active question in `questions`,
+// Learnable questions: active and not keyed ALL. Confidence is read through scoring.effectiveConfidence.
+// Focus topic: among topics with at least one learnable question,
 //   weakness  = skills.get(unitId)?.weakness ?? WEAKNESS.insufficient
-//   frequency = papersAsked / papersTotal (0 when papersTotal is 0)
+//   frequency = papersAsked / papersTotal (0 when papersTotal is 0) — content.topicIndex counts only the
+//               learner's path papers, the most recent 10
 //   relevance = exams includes pathExam ? 1 : 0
 //   score     = weakness * frequency * relevance
-// Highest score wins; ties -> more open mistakes in the topic, then topicId ascending. No topic with
-// score > 0 -> focus null and an empty practice set.
+// A topic is skipped when its mode has nothing to serve (diagnostic: no never-answered learnable question in
+// the unit; practice: no focus-pool question), so the plan never locks onto an exhausted topic.
+// Highest score wins; ties -> more open mistakes in the topic, then topicId ascending. Nothing eligible ->
+// focus null, mode practice, empty practice set.
 // why names every factor in one line, e.g.
 //   "Weak: 5 of 10 correct (50%) · asked in 1 of 1 papers · on your CCSE-IV path"
-//   (box label + skill evidence · frequency · relevance)
 //
-// Mode: "diagnostic" when the focus unit's box is insufficient: practiceSet = up to DIAGNOSTIC_SIZE active
-// questions from the focus UNIT never answered, ordered by id; olderTopicQuestionIds empty.
+// Mode: "diagnostic" when the focus unit's box is insufficient: practiceSet = up to DIAGNOSTIC_SIZE
+// never-answered learnable questions from the focus UNIT, by id; olderTopicQuestionIds empty.
 // Otherwise "practice": PRACTICE_SIZE questions:
 //   older = min(3, available older-topic questions) where an older topic is any topic other than the focus
 //           topic with at least one answer before `today`; pick questions whose concept has an open mistake,
-//           then latest answer wrong, then the longest-ago answered; ties by id
+//           then latest answer wrong, then the longest-ago answered, then never answered; ties by id
 //   focus = fill the rest from the focus topic: never answered, then latest wrong, then correct-but-not-sure,
 //           ties by id; if the topic runs out, the set is shorter (never pad with more older questions)
 //   practiceSet = focus picks then older picks; olderTopicQuestionIds = the older picks
-// Review (must fit MAX_REVIEW_MINUTES even after missed days, AT-C10):
-//   candidates = open mistakes in stage logged with retestDay <= today (as retestConceptIds, ordered by
-//   retestDay then conceptId), then due cards (fsrs.dueCards order); total capped at
-//   floor(MAX_REVIEW_MINUTES * 60 / REVIEW_SECONDS_PER_ITEM); estMinutes = ceil(count * REVIEW_SECONDS_PER_ITEM / 60).
-//   Retests come first because a next-day retest is the step that most often lapses.
-// quick: up to QUICK_SIZE question ids — question ids behind review.cardIds ("q:<id>"), then practiceSet
-// order, de-duplicated.
+// Review, counted in questions (must fit MAX_REVIEW_MINUTES even after missed days, AT-C10):
+//   retests = open mistakes in stage logged with retestDay <= today, misconceptions first, then retestDay,
+//   then conceptId; each serves its active wrongQuestionIds. Then due cards (fsrs.dueCards order) whose
+//   question is not already queued. Total capped at floor(MAX_REVIEW_MINUTES * 60 / REVIEW_SECONDS_PER_ITEM)
+//   items; review.questionIds is the ordered list to serve; estMinutes = ceil(items * seconds / 60).
+// quick: up to QUICK_SIZE question ids — review.questionIds, then practiceSet order, de-duplicated.
 // Deterministic: no clock, no randomness; `today` is an IST day (core/time).
 import { conceptKey, type TopicInfo } from "./content";
 import type { CardState } from "./fsrs";
 import type { MistakeState } from "./mistakes";
-import { latestAnswers, outcome } from "./scoring";
+import { effectiveConfidence, latestAnswers, learningOutcome } from "./scoring";
 import { WEAKNESS, type Box, type SkillState } from "./skillmap";
 import { localDay } from "./time";
 import type { AnswerGiven, Question } from "./types";
@@ -71,7 +73,7 @@ export interface DailyPlan {
   mode: "diagnostic" | "practice";
   practiceSet: string[];
   olderTopicQuestionIds: string[];
-  review: { retestConceptIds: string[]; cardIds: string[]; estMinutes: number };
+  review: { retestConceptIds: string[]; cardIds: string[]; questionIds: string[]; estMinutes: number };
   quick: string[];
 }
 
@@ -89,12 +91,33 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export function planDay(input: PlannerInput): DailyPlan {
   const { today, questions, answers, mistakes } = input;
-  const active = questions.filter((q) => q.status === "active");
+  // Learnable = active and not keyed ALL (an ALL question is no evidence either way).
+  const learnable = questions.filter((q) => q.status === "active" && q.accepted !== "ALL");
   const byId = new Map(questions.map((q) => [q.id, q]));
   const latest = latestAnswers(answers);
   const isOpen = (m: MistakeState | undefined): boolean => m !== undefined && m.stage !== "fixed";
+  const wrong = (q: Question, l: AnswerGiven | undefined) => l !== undefined && learningOutcome(q, l.chosen) === "wrong";
 
-  const focus = pickFocus(input, active);
+  // Diagnostic pool: never-answered learnable questions in a unit, by id.
+  const diagnosticPool = (unitId: string): string[] =>
+    learnable.filter((q) => q.unitId === unitId && !latest.has(q.id)).map((q) => q.id).sort(cmp);
+  // Focus pool: 0 never answered, 1 latest wrong, 2 correct but not sure; correct + sure is not practised.
+  const focusPool = (topicId: string): string[] => {
+    const pool: { id: string; rank: number }[] = [];
+    for (const q of learnable) {
+      if (q.topicId !== topicId) continue;
+      const l = latest.get(q.id);
+      if (!l) pool.push({ id: q.id, rank: 0 });
+      else if (wrong(q, l)) pool.push({ id: q.id, rank: 1 });
+      else if (effectiveConfidence(l.chosen, l.confidence) !== "sure") pool.push({ id: q.id, rank: 2 });
+    }
+    return pool.sort((a, b) => a.rank - b.rank || cmp(a.id, b.id)).map((x) => x.id);
+  };
+  // A topic is only worth picking if its mode has something to serve (review finding 1).
+  const hasWork = (topicId: string, unitId: string, box: Box): boolean =>
+    box === "insufficient" ? diagnosticPool(unitId).length > 0 : focusPool(topicId).length > 0;
+
+  const focus = pickFocus(input, learnable, hasWork);
 
   // Practice or diagnostic set.
   let mode: DailyPlan["mode"] = "practice";
@@ -102,27 +125,18 @@ export function planDay(input: PlannerInput): DailyPlan {
   let olderTopicQuestionIds: string[] = [];
   if (focus && focus.box === "insufficient") {
     mode = "diagnostic";
-    practiceSet = active
-      .filter((q) => q.unitId === focus.unitId && !latest.has(q.id))
-      .map((q) => q.id)
-      .sort(cmp)
-      .slice(0, DIAGNOSTIC_SIZE);
+    practiceSet = diagnosticPool(focus.unitId).slice(0, DIAGNOSTIC_SIZE);
   } else if (focus) {
     const olderTopics = new Set<string>();
     for (const a of answers) {
       const t = byId.get(a.questionId)?.topicId;
       if (t && t !== focus.topicId && localDay(a.at) < today) olderTopics.add(t);
     }
-    const olderPool = active
+    const olderPool = learnable
       .filter((q) => q.topicId !== undefined && olderTopics.has(q.topicId))
       .map((q) => {
         const l = latest.get(q.id);
-        return {
-          id: q.id,
-          openMistake: isOpen(mistakes.get(conceptKey(q))),
-          wrong: l !== undefined && outcome(q, l.chosen) === "wrong",
-          lastAt: l?.at ?? null,
-        };
+        return { id: q.id, openMistake: isOpen(mistakes.get(conceptKey(q))), wrong: wrong(q, l), lastAt: l?.at ?? null };
       })
       .sort(
         (a, b) =>
@@ -132,45 +146,50 @@ export function planDay(input: PlannerInput): DailyPlan {
           cmp(a.id, b.id),
       );
     olderTopicQuestionIds = olderPool.slice(0, Math.min(3, olderPool.length)).map((x) => x.id);
-
-    // 0 never answered, 1 latest wrong, 2 correct but not sure; correct + sure is not practised.
-    const focusPool: { id: string; rank: number }[] = [];
-    for (const q of active) {
-      if (q.topicId !== focus.topicId) continue;
-      const l = latest.get(q.id);
-      if (!l) focusPool.push({ id: q.id, rank: 0 });
-      else if (outcome(q, l.chosen) === "wrong") focusPool.push({ id: q.id, rank: 1 });
-      else if (l.confidence !== "sure") focusPool.push({ id: q.id, rank: 2 });
-    }
-    focusPool.sort((a, b) => a.rank - b.rank || cmp(a.id, b.id));
-    const focusPicks = focusPool.slice(0, PRACTICE_SIZE - olderTopicQuestionIds.length).map((x) => x.id);
+    const focusPicks = focusPool(focus.topicId).slice(0, PRACTICE_SIZE - olderTopicQuestionIds.length);
     practiceSet = [...focusPicks, ...olderTopicQuestionIds];
   }
 
-  // Review queue: retests first, then due cards, capped to fit MAX_REVIEW_MINUTES.
+  // Review queue, counted in questions so nothing is spent twice (review finding 10):
+  // retests first (misconceptions first), each serving its concept's missed questions; then due cards
+  // whose question is not already queued. Capped to fit MAX_REVIEW_MINUTES (AT-C10).
   const cap = Math.floor((MAX_REVIEW_MINUTES * 60) / REVIEW_SECONDS_PER_ITEM);
-  const retests = [...mistakes.values()]
+  const reviewQuestionIds: string[] = [];
+  let items = 0; // questions queued plus non-question cards (facts, terms)
+  const queued = new Set<string>();
+  const retestConceptIds: string[] = [];
+  const retestCandidates = [...mistakes.values()]
     .filter((m) => m.stage === "logged" && m.retestDay <= today)
-    .sort((a, b) => cmp(a.retestDay, b.retestDay) || cmp(a.conceptId, b.conceptId))
-    .map((m) => m.conceptId)
-    .slice(0, cap);
-  const due = [...input.cards.values()]
+    .sort((a, b) => Number(b.misconception) - Number(a.misconception) || cmp(a.retestDay, b.retestDay) || cmp(a.conceptId, b.conceptId));
+  for (const m of retestCandidates) {
+    const ids = m.wrongQuestionIds.filter((id) => byId.get(id)?.status === "active" && !queued.has(id));
+    if (!ids.length || items >= cap) continue;
+    retestConceptIds.push(m.conceptId);
+    for (const id of ids.slice(0, cap - items)) { reviewQuestionIds.push(id); queued.add(id); items++; }
+  }
+  const cardIds: string[] = [];
+  const dueCards = [...input.cards.values()]
     .filter((c) => c.dueDay <= today && !isDeadQuestionCard(c, byId))
-    .sort((a, b) => cmp(a.dueDay, b.dueDay) || cmp(a.due, b.due) || cmp(a.cardId, b.cardId))
-    .map((c) => c.cardId)
-    .slice(0, cap - retests.length);
-  const count = retests.length + due.length;
+    .sort((a, b) => cmp(a.dueDay, b.dueDay) || cmp(a.due, b.due) || cmp(a.cardId, b.cardId));
+  for (const c of dueCards) {
+    if (items >= cap) break;
+    const qid = c.cardId.startsWith(QUESTION_CARD_PREFIX) ? c.cardId.slice(QUESTION_CARD_PREFIX.length) : null;
+    if (qid !== null && queued.has(qid)) continue;
+    cardIds.push(c.cardId);
+    items++;
+    if (qid !== null) { reviewQuestionIds.push(qid); queued.add(qid); }
+  }
   const review = {
-    retestConceptIds: retests,
-    cardIds: due,
-    estMinutes: Math.ceil((count * REVIEW_SECONDS_PER_ITEM) / 60),
+    retestConceptIds,
+    cardIds,
+    questionIds: reviewQuestionIds,
+    estMinutes: Math.ceil((items * REVIEW_SECONDS_PER_ITEM) / 60),
   };
 
-  // Quick session.
+  // Quick session: review questions first, then the practice set.
   const quick: string[] = [];
   const seen = new Set<string>();
-  const cardQuestionIds = due.filter((id) => id.startsWith(QUESTION_CARD_PREFIX)).map((id) => id.slice(QUESTION_CARD_PREFIX.length));
-  for (const id of [...cardQuestionIds, ...practiceSet]) {
+  for (const id of [...reviewQuestionIds, ...practiceSet]) {
     if (quick.length >= QUICK_SIZE) break;
     if (seen.has(id)) continue;
     seen.add(id);
@@ -186,9 +205,13 @@ function isDeadQuestionCard(c: CardState, byId: Map<string, Question>): boolean 
   return byId.get(c.cardId.slice(QUESTION_CARD_PREFIX.length))?.status !== "active";
 }
 
-function pickFocus(input: PlannerInput, active: Question[]): FocusPick | null {
+function pickFocus(
+  input: PlannerInput,
+  learnable: Question[],
+  hasWork: (topicId: string, unitId: string, box: Box) => boolean,
+): FocusPick | null {
   const { pathExam, skills, mistakes } = input;
-  const topicsWithQuestions = new Set(active.map((q) => q.topicId).filter((t): t is string => t !== undefined));
+  const topicsWithQuestions = new Set(learnable.map((q) => q.topicId).filter((t): t is string => t !== undefined));
   const openByTopic = new Map<string, number>();
   for (const m of mistakes.values()) {
     if (m.stage === "fixed" || m.topicId === null) continue;
@@ -205,6 +228,7 @@ function pickFocus(input: PlannerInput, active: Question[]): FocusPick | null {
     const relevance = t.exams.includes(pathExam) ? 1 : 0;
     const score = weakness * frequency * relevance;
     if (!(score > 0)) continue;
+    if (!hasWork(t.topicId, t.unitId, box)) continue;
     const open = openByTopic.get(t.topicId) ?? 0;
     if (
       best &&

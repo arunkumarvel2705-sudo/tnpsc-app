@@ -3,6 +3,8 @@
 import { mergeEvents } from "./scoring";
 import type { AnswerGiven, ErrorTagged, LearningEvent } from "./types";
 
+const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+
 export interface ParseResult {
   events: LearningEvent[];
   rejected: { line: number; reason: string }[]; // 1-based line numbers; blank lines are skipped, not rejected
@@ -39,7 +41,8 @@ export function validateEvent(raw: unknown): LearningEvent | string {
   for (const k of ["eventId", "deviceId", "sessionId"] as const) {
     if (!isNonEmptyString(r[k])) return `bad ${k}: ${show(r[k])}`;
   }
-  if (typeof r.at !== "string" || Number.isNaN(Date.parse(r.at))) return `bad at: ${show(r.at)}`;
+  // ISO 8601 with an explicit zone only: a zoneless time would be read in the device's own zone (review finding 4).
+  if (typeof r.at !== "string" || !ISO_WITH_ZONE.test(r.at) || Number.isNaN(Date.parse(r.at))) return `bad at: ${show(r.at)}`;
   const base = {
     eventId: r.eventId as string,
     deviceId: r.deviceId as string,

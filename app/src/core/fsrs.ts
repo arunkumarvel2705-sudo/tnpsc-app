@@ -2,7 +2,7 @@
 // Contract is fixed; implement the bodies.
 // Rules: default parameters, enable_fuzz false (must be deterministic), replay reviews in (at, cardId) order.
 import { Rating, createEmptyCard, fsrs, generatorParameters, type Card, type Grade as FsrsGrade } from "ts-fsrs";
-import { outcome, sortEvents, type Outcome } from "./scoring";
+import { effectiveConfidence, learningOutcome, sortEvents, type Outcome } from "./scoring";
 import { localDay } from "./time";
 import type { AnswerGiven, Confidence, Question } from "./types";
 
@@ -50,7 +50,8 @@ export function questionCardId(questionId: string): string {
 /**
  * v1 cards: a question card is born at the first scored wrong answer to that question; that answer and
  * every later scored answer to the same question are its reviews. Unscored answers (deleted questions)
- * and answers to unknown questions are ignored. Correctness comes from the current key (scoring.outcome).
+ * answers to ALL-keyed questions (no evidence) and answers to unknown questions are ignored. Correctness comes
+ * from the current key (scoring.learningOutcome); confidence goes through scoring.effectiveConfidence.
  */
 export function reviewsFromAnswers(answers: AnswerGiven[], questions: Map<string, Question>): Review[] {
   const born = new Set<string>();
@@ -58,13 +59,13 @@ export function reviewsFromAnswers(answers: AnswerGiven[], questions: Map<string
   for (const a of sortEvents(answers)) {
     const q = questions.get(a.questionId);
     if (!q) continue;
-    const o = outcome(q, a.chosen);
+    const o = learningOutcome(q, a.chosen);
     if (o === "unscored") continue;
     if (!born.has(q.id)) {
       if (o !== "wrong") continue;
       born.add(q.id);
     }
-    reviews.push({ cardId: questionCardId(q.id), kind: "question", at: a.at, grade: gradeFor(o, a.confidence) });
+    reviews.push({ cardId: questionCardId(q.id), kind: "question", at: a.at, grade: gradeFor(o, effectiveConfidence(a.chosen, a.confidence)) });
   }
   return reviews;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MistakeState } from "./mistakes";
+import { mistakeStates, type MistakeState } from "./mistakes";
 import { MIN_ANSWERS, skillStates, WEAKNESS, type SkillState } from "./skillmap";
 import type { AnswerGiven, Confidence, Option, Question } from "./types";
 
@@ -20,13 +20,17 @@ const ans = (questionId: string, chosen: Option, confidence: Confidence): Answer
   };
 };
 
-const mistake = (conceptId: string, stage: MistakeState["stage"]): MistakeState => ({
+const mistake = (conceptId: string, stage: MistakeState["stage"], sureWrong: string[] = []): MistakeState => ({
   conceptId, topicId: null, unitId: null, stage, misconception: true, streak: 0, streakStartDay: null,
-  transferDone: false, wrongQuestionIds: [], loggedDay: "2026-11-22", retestDay: "2026-11-23",
+  transferDone: false, wrongQuestionIds: sureWrong, sureWrongQuestionIds: sureWrong, transferPossible: true, loggedDay: "2026-11-22", retestDay: "2026-11-23",
   lastWrongAt: "2026-11-22T10:00:00Z", lastWrongEventId: "e0", reason: null, fixedAt: null, episodes: 1,
 });
 
-/** Builds a unit of questions u1..uN and one answer each: "cs" correct+sure, "cg" correct+guess, "ws" wrong+sure, "wg" wrong+guess. */
+/**
+ * Builds a unit of questions and one answer each: "cs" correct+sure, "cg" correct+guess, "ws" wrong+sure,
+ * "wg" wrong+guess. Ten unanswered padding questions keep the unit at 10+ questions, so the 10-answer
+ * minimum applies (a smaller unit is judged once all its questions are answered).
+ */
 type Kind = "cs" | "cg" | "ws" | "wg";
 function unit(unitId: string, kinds: Kind[]) {
   const questions: Question[] = [];
@@ -36,14 +40,19 @@ function unit(unitId: string, kinds: Kind[]) {
     questions.push(q(id, unitId));
     answers.push(ans(id, k[0] === "c" ? "A" : "B", k[1] === "s" ? "sure" : "guess"));
   });
+  for (let i = 0; i < 10; i++) questions.push(q(`${unitId}-pad${i}`, unitId));
   return { questions, answers };
 }
 const rep = (k: Kind, n: number): Kind[] => Array<Kind>(n).fill(k);
 const index = (qs: Question[]) => new Map(qs.map((x) => [x.id, x]));
 
-function one(unitId: string, kinds: Kind[], mistakes = new Map<string, MistakeState>()): SkillState {
+/** Mistake states from the real module, as the engine computes them. */
+const real = (answers: AnswerGiven[], qs: Map<string, Question>) => mistakeStates(answers, qs);
+
+function one(unitId: string, kinds: Kind[], mistakes?: Map<string, MistakeState>): SkillState {
   const { questions, answers } = unit(unitId, kinds);
-  return skillStates([unitId], answers, index(questions), mistakes).get(unitId)!;
+  const qs = index(questions);
+  return skillStates([unitId], answers, qs, mistakes ?? real(answers, qs)).get(unitId)!;
 }
 
 describe("AT-C8: boxes", () => {
@@ -51,7 +60,7 @@ describe("AT-C8: boxes", () => {
     const s = one("U", rep("cs", 9));
     expect(s.box).toBe("insufficient");
     expect(s.scored).toBe(9);
-    expect(s.evidence).toBe("Not enough data: 9 of 10 answers");
+    expect(s.evidence).toBe("9 of 10 answers so far");
   });
   it("10 answers at 50% is weak", () => {
     const s = one("U", [...rep("cs", 5), ...rep("wg", 5)]);
@@ -79,11 +88,12 @@ describe("AT-C4: deleted questions", () => {
   it("answers to deleted questions are excluded from counts and boxes", () => {
     const { questions, answers } = unit("U", [...rep("cs", 9), ...rep("ws", 2)]);
     // delete the two sure-but-wrong questions: 9 scored, no misconceptions
-    const qs = index(questions.map((x, i) => (i >= 9 ? { ...x, status: "deleted" as const } : x)));
-    const s = skillStates(["U"], answers, qs, new Map()).get("U")!;
+    const qs = index(questions.map((x, i) => (i === 9 || i === 10 ? { ...x, status: "deleted" as const } : x)));
+    const s = skillStates(["U"], answers, qs, real(answers, qs)).get("U")!;
     expect(s).toMatchObject({ box: "insufficient", scored: 9, correct: 9, unresolvedMisconceptions: 0 });
     // without deletion it would have been a misconception
-    expect(skillStates(["U"], answers, index(questions), new Map()).get("U")!.box).toBe("misconception");
+    const all = index(questions);
+    expect(skillStates(["U"], answers, all, real(answers, all)).get("U")!.box).toBe("misconception");
   });
   it("a deleted question does not count towards the 10-answer minimum", () => {
     const { questions, answers } = unit("U", rep("cs", 10));
@@ -139,46 +149,71 @@ describe("rules", () => {
   it("the latest answer per question wins", () => {
     const { questions, answers } = unit("U", rep("wg", 10));
     // re-answer every question correctly and surely, later
-    const later = questions.map((x) => ans(x.id, "A", "sure"));
+    const later = questions.slice(0, 10).map((x) => ans(x.id, "A", "sure"));
     const s = skillStates(["U"], [...later.reverse(), ...answers], index(questions), new Map()).get("U")!;
     expect(s).toMatchObject({ box: "strong", scored: 10, correct: 10 });
   });
-  it("a wrong+sure answer re-answered correctly is no longer a misconception", () => {
+  it("a wrong+sure answer re-answered correctly still counts until its mistake is fixed (review P4)", () => {
     const { questions, answers } = unit("U", [...rep("cs", 8), ...rep("ws", 2)]);
     const fix = ans(questions[9].id, "A", "sure");
-    const s = skillStates(["U"], [...answers, fix], index(questions), new Map()).get("U")!;
-    expect(s).toMatchObject({ box: "strong", unresolvedMisconceptions: 1, correct: 9 });
+    const qs = index(questions);
+    const s = skillStates(["U"], [...answers, fix], qs, real([...answers, fix], qs)).get("U")!;
+    expect(s).toMatchObject({ box: "misconception", unresolvedMisconceptions: 2, correct: 9 });
   });
   it("a wrong+sure whose concept MistakeState is fixed does not count", () => {
     const { questions, answers } = unit("U", [...rep("cs", 8), ...rep("ws", 2)]);
-    const fixed = new Map([[`c-${questions[8].id}`, mistake(`c-${questions[8].id}`, "fixed")]]);
+    const fixed = new Map([
+      [`c-${questions[8].id}`, mistake(`c-${questions[8].id}`, "fixed", [questions[8].id])],
+      [`c-${questions[9].id}`, mistake(`c-${questions[9].id}`, "logged", [questions[9].id])],
+    ]);
     const s = skillStates(["U"], answers, index(questions), fixed).get("U")!;
     expect(s).toMatchObject({ box: "strong", unresolvedMisconceptions: 1 });
   });
   it("an open (logged or spaced) MistakeState counts as unresolved", () => {
     const { questions, answers } = unit("U", [...rep("cs", 8), ...rep("ws", 2)]);
     const open = new Map([
-      [`c-${questions[8].id}`, mistake(`c-${questions[8].id}`, "logged")],
-      [`c-${questions[9].id}`, mistake(`c-${questions[9].id}`, "spaced")],
+      [`c-${questions[8].id}`, mistake(`c-${questions[8].id}`, "logged", [questions[8].id])],
+      [`c-${questions[9].id}`, mistake(`c-${questions[9].id}`, "spaced", [questions[9].id])],
     ]);
     expect(skillStates(["U"], answers, index(questions), open).get("U")!.unresolvedMisconceptions).toBe(2);
   });
-  it("mistakes are looked up by conceptKey (topic when no concept)", () => {
-    const { questions, answers } = unit("U", [...rep("cs", 8), ...rep("ws", 2)]);
-    const qs = index(questions.map((x) => ({ ...x, conceptId: undefined })));
-    const fixedTopic = new Map([["U.t", mistake("U.t", "fixed")]]);
-    expect(skillStates(["U"], answers, qs, fixedTopic).get("U")!).toMatchObject({ box: "strong", unresolvedMisconceptions: 0 });
+  it("each sure-but-wrong question counts in its own unit", () => {
+    const a = unit("A", rep("cs", 10));
+    const b = unit("B", rep("cs", 10));
+    const qs = index([...a.questions, ...b.questions]);
+    // one open misconception whose two sure-wrong questions sit in different units
+    const m = new Map([["k", mistake("k", "spaced", [a.questions[0].id, b.questions[0].id])]]);
+    const s = skillStates(["A", "B"], [...a.answers, ...b.answers], qs, m);
+    expect(s.get("A")!.unresolvedMisconceptions).toBe(1);
+    expect(s.get("B")!.unresolvedMisconceptions).toBe(1);
   });
-  it("a missing MistakeState counts as unresolved", () => {
-    const s = one("U", [...rep("cs", 8), ...rep("ws", 2)], new Map());
-    expect(s.unresolvedMisconceptions).toBe(2);
-    expect(s.box).toBe("misconception");
+  it("only open misconceptions count; an ordinary open mistake does not", () => {
+    const { questions, answers } = unit("U", rep("cs", 10));
+    const ordinary = { ...mistake("k", "logged", [questions[0].id, questions[1].id]), misconception: false };
+    expect(skillStates(["U"], answers, index(questions), new Map([["k", ordinary]])).get("U")!.unresolvedMisconceptions).toBe(0);
+  });
+  it("a unit with fewer than 10 questions is judged once all are answered (review finding 1)", () => {
+    const qs6 = [0, 1, 2, 3, 4, 5].map((i) => q(`S-${i}`, "S"));
+    const as6 = qs6.map((x, i) => ans(x.id, i < 3 ? "A" : "B", "guess"));
+    const m = index(qs6);
+    expect(skillStates(["S"], as6.slice(0, 5), m, real(as6.slice(0, 5), m)).get("S")!).toMatchObject({ box: "insufficient", evidence: "5 of 6 answers so far" });
+    expect(skillStates(["S"], as6, m, real(as6, m)).get("S")!.box).toBe("weak");
+  });
+  it("a raw E marked sure still counts as no idea (AT-C5, review finding 5)", () => {
+    const { questions, answers } = unit("U", rep("cs", 8));
+    const extra = [q("U-e1", "U", { accepted: "ALL" }), q("U-e2", "U")];
+    const raw = [ans("U-e1", "E", "sure"), ans("U-e2", "E", "sure")];
+    const qs = index([...questions, ...extra]);
+    const s = skillStates(["U"], [...answers, ...raw], qs, real([...answers, ...raw], qs)).get("U")!;
+    expect(s.unresolvedMisconceptions).toBe(0);
+    expect(s.scored).toBe(9); // the ALL-keyed answer is no evidence either way (review finding 7)
   });
   it("wrong+guess and wrong with E never count as misconceptions", () => {
     const { questions, answers } = unit("U", rep("wg", 2));
     const extra = [q("U-e1", "U"), q("U-e2", "U")];
     const es = [ans("U-e1", "E", "none"), ans("U-e2", "E", "none")];
-    const s = skillStates(["U"], [...answers, ...es], index([...questions, ...extra]), new Map()).get("U")!;
+    const qs = index([...questions, ...extra]);
+    const s = skillStates(["U"], [...answers, ...es], qs, real([...answers, ...es], qs)).get("U")!;
     expect(s).toMatchObject({ box: "insufficient", scored: 4, unresolvedMisconceptions: 0 });
   });
   it("units with no answers still get a state", () => {
@@ -187,7 +222,7 @@ describe("rules", () => {
     expect([...m.keys()]).toEqual(["A", "B"]);
     expect(m.get("B")).toEqual({
       unitId: "B", box: "insufficient", scored: 0, correct: 0, accuracy: 0, sureShare: 1,
-      unresolvedMisconceptions: 0, weakness: WEAKNESS.insufficient, evidence: "Not enough data: 0 of 10 answers",
+      unresolvedMisconceptions: 0, weakness: WEAKNESS.insufficient, evidence: "No questions on this unit yet",
     });
   });
   it("questions without unitId, unknown questions and units not asked for are ignored", () => {

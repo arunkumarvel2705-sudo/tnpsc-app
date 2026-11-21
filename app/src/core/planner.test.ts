@@ -37,7 +37,7 @@ const EVIDENCE: Record<Box, string> = {
   weak: "5 of 10 correct (50%)",
   shaky: "7 of 10 correct (70%)",
   strong: "9 of 10 correct (90%), 8 of 9 sure",
-  insufficient: "Not enough data: 6 of 10 answers",
+  insufficient: "6 of 10 answers so far",
 };
 const skill = (unitId: string, box: Box): SkillState => ({
   unitId, box, scored: 10, correct: 5, accuracy: 0.5, sureShare: 1, unresolvedMisconceptions: 0,
@@ -45,9 +45,9 @@ const skill = (unitId: string, box: Box): SkillState => ({
 });
 const skillsOf = (...s: SkillState[]) => new Map(s.map((x) => [x.unitId, x]));
 
-const mistake = (conceptId: string, topicId: string | null, stage: MistakeStage, retestDay: string): MistakeState => ({
+const mistake = (conceptId: string, topicId: string | null, stage: MistakeStage, retestDay: string, wrongQuestionIds: string[] = []): MistakeState => ({
   conceptId, topicId, unitId: null, stage, misconception: false, streak: 0, streakStartDay: null, transferDone: false,
-  wrongQuestionIds: [], loggedDay: retestDay, retestDay, lastWrongAt: `${retestDay}T00:00:00Z`, lastWrongEventId: "x",
+  wrongQuestionIds, sureWrongQuestionIds: [], transferPossible: true, loggedDay: retestDay, retestDay, lastWrongAt: `${retestDay}T00:00:00Z`, lastWrongEventId: "x",
   reason: null, fixedAt: null, episodes: 1,
 });
 const mistakesOf = (...m: MistakeState[]) => new Map(m.map((x) => [x.conceptId, x]));
@@ -120,7 +120,7 @@ describe("AT-C9: focus = highest weakness x frequency x relevance", () => {
       questions: [q("a1", "T1", "U1")],
       skills: skillsOf(skill("U1", "insufficient")),
     }));
-    expect(withState.focus?.why).toBe("Not diagnosed yet: Not enough data: 6 of 10 answers · asked in 2 of 4 papers · on your CCSE-IV path");
+    expect(withState.focus?.why).toBe("Not diagnosed yet: 6 of 10 answers so far · asked in 2 of 4 papers · on your CCSE-IV path");
   });
 
   it("skips topics with no active question", () => {
@@ -283,9 +283,9 @@ describe("AT-C10: review queue fits after missed days", () => {
   it("60 due cards and 15 retests -> 20 items, retests first, estMinutes <= 10", () => {
     const cards = range("c", 60).map((id, i) => card(`q:${id}`, `2026-11-${String(10 + (i % 11)).padStart(2, "0")}`));
     const questions = range("c", 60).map((id) => q(id, "X", "UX"));
-    const retests = range("m", 15).map((id, i) => mistake(id, "X", "logged", `2026-11-${String(21 + (i % 3)).padStart(2, "0")}`));
+    const retests = range("m", 15).map((id, i) => mistake(id, "X", "logged", `2026-11-${String(21 + (i % 3)).padStart(2, "0")}`, [`${id}-q`]));
     const plan = planDay(base({
-      questions,
+      questions: [...questions, ...range("m", 15).map((id) => q(`${id}-q`, "X", "UX"))],
       cards: cardsOf(...cards, card("q:c-future", "2026-11-25")),
       mistakes: mistakesOf(
         ...retests,
@@ -294,8 +294,9 @@ describe("AT-C10: review queue fits after missed days", () => {
         mistake("fixed", "X", "fixed", "2026-11-20"),
       ),
     }));
-    const { retestConceptIds, cardIds, estMinutes } = plan.review;
+    const { retestConceptIds, cardIds, estMinutes, questionIds } = plan.review;
     expect(retestConceptIds.length + cardIds.length).toBe(20);
+    expect(questionIds).toHaveLength(20);
     expect(estMinutes).toBe(10);
     expect(estMinutes).toBeLessThanOrEqual(MAX_REVIEW_MINUTES);
     expect(retestConceptIds).toHaveLength(15);
@@ -303,12 +304,13 @@ describe("AT-C10: review queue fits after missed days", () => {
     expect(retestConceptIds).toEqual(expectedRetests);
     // Most overdue first: dueDay 2026-11-10 holds c00, c11, c22, c33, c44, c55.
     expect(cardIds).toEqual(["q:c00", "q:c11", "q:c22", "q:c33", "q:c44"]);
-    expect(plan.quick).toEqual(["c00", "c11", "c22", "c33", "c44"]);
+    expect(plan.quick).toEqual(expectedRetests.slice(0, 5).map((id) => `${id}-q`)); // retest questions come first
   });
 
   it("retests alone can fill the cap", () => {
     const plan = planDay(base({
-      mistakes: mistakesOf(...range("m", 25).map((id) => mistake(id, "X", "logged", "2026-11-20"))),
+      questions: range("m", 25).map((id) => q(`${id}-q`, "X", "UX")),
+      mistakes: mistakesOf(...range("m", 25).map((id) => mistake(id, "X", "logged", "2026-11-20", [`${id}-q`]))),
       cards: cardsOf(card("f:1", "2026-11-01")),
     }));
     expect(plan.review.retestConceptIds).toEqual(range("m", 20));
@@ -328,8 +330,10 @@ describe("AT-C10: review queue fits after missed days", () => {
     }));
     expect(plan.review.cardIds).toEqual(["f:z", "q:a", "q:b", "q:c"]);
     expect(plan.review.estMinutes).toBe(2);
-    expect(planDay(base({ mistakes: mistakesOf(mistake("m", null, "logged", TODAY)) })).review.estMinutes).toBe(1);
-    expect(planDay(base({})).review).toEqual({ retestConceptIds: [], cardIds: [], estMinutes: 0 });
+    expect(planDay(base({ questions: [q("a", "X", "UX")], mistakes: mistakesOf(mistake("m", null, "logged", TODAY, ["a"])) })).review.estMinutes).toBe(1);
+    // a retest whose questions are gone has nothing to serve and is not queued
+    expect(planDay(base({ mistakes: mistakesOf(mistake("m", null, "logged", TODAY, ["gone"])) })).review.retestConceptIds).toEqual([]);
+    expect(planDay(base({})).review).toEqual({ retestConceptIds: [], cardIds: [], questionIds: [], estMinutes: 0 });
   });
 });
 
