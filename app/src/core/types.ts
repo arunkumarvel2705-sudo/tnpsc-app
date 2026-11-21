@@ -21,6 +21,7 @@ export interface Question {
   status: "active" | "deleted";
   format?: "match";
   hasFigure?: boolean;
+  conceptId?: string; // finest tag; when absent the topic stands in for the concept (see conceptKey)
   topicId?: string;
   unitId?: string;
   source: { exam: string; year: number; paper: string; qNo: number; pdfRef: string; page: number };
@@ -38,6 +39,7 @@ export interface ContentBundle {
   builtAt: string;
   papers: Paper[];
   units: { id: string; nameEn: string; nameTa: string | null; questions: number }[];
+  topics?: { id: string; unitId: string; nameEn: string; nameTa: string | null }[]; // optional until the pipeline emits it
   questions: Question[];
 }
 
@@ -59,4 +61,14 @@ export interface AnswerGiven extends EventBase {
   contentVersion: string;
 }
 
-export type LearningEvent = AnswerGiven;
+/** Why a miss happened, tagged at session close (minutes after the answer, so it is its own event). */
+export type ErrorReason = "concept" | "careless" | "misread" | "time" | "memory" | "other";
+
+export interface ErrorTagged extends EventBase {
+  type: "errorTag";
+  answerEventId: string; // the AnswerGiven being explained
+  questionId: string;
+  reason: ErrorReason;
+}
+
+export type LearningEvent = AnswerGiven | ErrorTagged;

@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { effectiveConfidence, latestAnswers, outcome, summarise } from "../core/scoring";
-import type { AnswerGiven, Confidence, ContentBundle, Option, Question } from "../core/types";
+import type { AnswerGiven, Confidence, ContentBundle, LearningEvent, Option, Question } from "../core/types";
 import { AuthError, fetchBundle, pdfLink, pushEvents } from "../sync/github";
 import { store } from "../sync/store";
 import { matchTable, stemLines } from "./format";
 
 type Screen = { name: "home" } | { name: "practice"; section: Question["section"] } | { name: "review"; section: Question["section"] };
 
+const answersIn = (log: LearningEvent[]) => log.filter((e): e is AnswerGiven => e.type === "answer");
+
 export default function App() {
   const [token, setToken] = useState(store.token());
   const [bundle, setBundle] = useState<ContentBundle | null>(store.bundle());
-  const [events, setEvents] = useState<AnswerGiven[]>(store.events());
+  const [events, setEvents] = useState<AnswerGiven[]>(answersIn(store.events()));
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const [sync, setSync] = useState<{ state: "idle" | "busy" | "error"; msg?: string }>({ state: "idle" });
   const [pending, setPending] = useState(store.pending().length);
@@ -37,7 +39,7 @@ export default function App() {
 
   const record = useCallback((e: AnswerGiven) => {
     store.addEvent(e);
-    setEvents(store.events());
+    setEvents(answersIn(store.events()));
     setPending(store.pending().length);
     void syncNow();
   }, [syncNow]);
