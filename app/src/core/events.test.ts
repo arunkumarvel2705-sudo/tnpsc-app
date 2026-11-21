@@ -3,12 +3,12 @@ import { answersOf, buildLog, errorTagsByAnswer, parseEventLines, validateEvent 
 import type { AnswerGiven, ErrorTagged, LearningEvent } from "./types";
 
 const answer = (over: Partial<AnswerGiven> = {}): AnswerGiven => ({
-  type: "answer", eventId: "a1", deviceId: "phone", at: "2026-11-22T10:00:00Z", schemaVersion: 1, sessionId: "s1",
+  type: "answer", eventId: "a1", deviceId: "phone", at: "2026-11-22T10:00:00.000Z", schemaVersion: 1, sessionId: "s1",
   questionId: "q1", chosen: "B", confidence: "sure", timeMs: 1200, mode: "practice", contentVersion: "v1",
   ...over,
 });
 const tag = (over: Partial<ErrorTagged> = {}): ErrorTagged => ({
-  type: "errorTag", eventId: "t1", deviceId: "phone", at: "2026-11-22T10:05:00Z", schemaVersion: 1, sessionId: "s1",
+  type: "errorTag", eventId: "t1", deviceId: "phone", at: "2026-11-22T10:05:00.000Z", schemaVersion: 1, sessionId: "s1",
   answerEventId: "a1", questionId: "q1", reason: "concept",
   ...over,
 });
@@ -46,8 +46,8 @@ describe("validateEvent", () => {
     expect((validateEvent(answer({ chosen: "A", confidence: "guess" })) as AnswerGiven).confidence).toBe("guess");
   });
 
-  it("accepts timeMs 0 and an empty contentVersion string", () => {
-    expect(validateEvent(answer({ timeMs: 0, contentVersion: "" }))).toEqual(answer({ timeMs: 0, contentVersion: "" }));
+  it("accepts timeMs 0", () => {
+    expect(validateEvent(answer({ timeMs: 0 }))).toEqual(answer({ timeMs: 0 }));
   });
 
   const cases: [string, unknown, string][] = [
@@ -122,7 +122,7 @@ describe("AT-C1: duplicate eventIds count once", () => {
 
   it("across two files", () => {
     const f1 = parseEventLines(jsonl(answer(), tag())).events;
-    const f2 = parseEventLines(jsonl(answer(), answer({ eventId: "a2", at: "2026-11-22T10:01:00Z" }))).events;
+    const f2 = parseEventLines(jsonl(answer(), answer({ eventId: "a2", at: "2026-11-22T10:01:00.000Z" }))).events;
     const log = buildLog(f1, f2);
     expect(log.map((e) => e.eventId)).toEqual(["a1", "a2", "t1"]);
     expect(answersOf(log)).toHaveLength(2);
@@ -137,11 +137,11 @@ describe("AT-C1: duplicate eventIds count once", () => {
 
 describe("AT-C2: replay is deterministic", () => {
   const events: LearningEvent[] = [
-    answer({ eventId: "a3", at: "2026-11-22T10:02:00Z", questionId: "q3" }),
-    answer({ eventId: "a1", at: "2026-11-22T10:00:00Z" }),
-    tag({ eventId: "t1", at: "2026-11-22T10:05:00Z" }),
-    answer({ eventId: "a2b", at: "2026-11-22T10:01:00Z", questionId: "q2" }),
-    answer({ eventId: "a2a", at: "2026-11-22T10:01:00Z", questionId: "q2", deviceId: "laptop" }), // same at: eventId breaks the tie
+    answer({ eventId: "a3", at: "2026-11-22T10:02:00.000Z", questionId: "q3" }),
+    answer({ eventId: "a1", at: "2026-11-22T10:00:00.000Z" }),
+    tag({ eventId: "t1", at: "2026-11-22T10:05:00.000Z" }),
+    answer({ eventId: "a2b", at: "2026-11-22T10:01:00.000Z", questionId: "q2" }),
+    answer({ eventId: "a2a", at: "2026-11-22T10:01:00.000Z", questionId: "q2", deviceId: "laptop" }), // same at: eventId breaks the tie
   ];
   const text = jsonl(...events);
 
@@ -172,17 +172,17 @@ describe("AT-C2: replay is deterministic", () => {
 
 describe("answersOf / errorTagsByAnswer", () => {
   it("answersOf keeps only answers, in log order", () => {
-    const log = buildLog([tag(), answer(), answer({ eventId: "a2", at: "2026-11-22T10:01:00Z" })]);
+    const log = buildLog([tag(), answer(), answer({ eventId: "a2", at: "2026-11-22T10:01:00.000Z" })]);
     expect(answersOf(log).map((e) => e.eventId)).toEqual(["a1", "a2"]);
   });
 
   it("errorTagsByAnswer keeps the latest tag per answer", () => {
     const log = buildLog([
       answer(),
-      answer({ eventId: "a2", at: "2026-11-22T10:01:00Z" }),
-      tag({ eventId: "t2", at: "2026-11-22T10:07:00Z", reason: "careless" }),
-      tag({ eventId: "t1", at: "2026-11-22T10:05:00Z", reason: "concept" }),
-      tag({ eventId: "t3", at: "2026-11-22T10:06:00Z", answerEventId: "a2", reason: "time" }),
+      answer({ eventId: "a2", at: "2026-11-22T10:01:00.000Z" }),
+      tag({ eventId: "t2", at: "2026-11-22T10:07:00.000Z", reason: "careless" }),
+      tag({ eventId: "t1", at: "2026-11-22T10:05:00.000Z", reason: "concept" }),
+      tag({ eventId: "t3", at: "2026-11-22T10:06:00.000Z", answerEventId: "a2", reason: "time" }),
     ]);
     const m = errorTagsByAnswer(log);
     expect(m.size).toBe(2);
@@ -190,5 +190,19 @@ describe("answersOf / errorTagsByAnswer", () => {
     expect(m.get("a1")?.eventId).toBe("t2");
     expect(m.get("a2")?.reason).toBe("time");
     expect(m.has("missing")).toBe(false);
+  });
+});
+
+describe("timestamp normalisation (review fix)", () => {
+  it("orders mixed time zones by real time", () => {
+    const base = { type: "answer", schemaVersion: 1, deviceId: "phone", sessionId: "s", questionId: "q1", chosen: "A", confidence: "sure", timeMs: 1, mode: "practice", contentVersion: "v1" };
+    // 10:00 IST is 04:30Z, which is earlier than 05:00Z even though "...10:00+05:30" sorts after it as text
+    const ist = validateEvent({ ...base, eventId: "a", at: "2026-11-22T10:00:00+05:30" }) as LearningEvent;
+    const utc = validateEvent({ ...base, eventId: "b", at: "2026-11-22T05:00:00Z" }) as LearningEvent;
+    expect(ist.at).toBe("2026-11-22T04:30:00.000Z");
+    expect(buildLog([utc, ist]).map((e) => e.eventId)).toEqual(["a", "b"]);
+  });
+  it("rejects an empty contentVersion", () => {
+    expect(validateEvent({ type: "answer", schemaVersion: 1, eventId: "x", deviceId: "d", sessionId: "s", at: "2026-11-22T00:00:00Z", questionId: "q", chosen: "A", confidence: "sure", timeMs: 1, mode: "practice", contentVersion: "" })).toMatch(/contentVersion/);
   });
 });

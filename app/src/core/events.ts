@@ -28,7 +28,8 @@ const showBare = (v: unknown): string => (typeof v === "string" ? v : show(v));
 /**
  * Validate one parsed JSON value. Returns the event, or a reason string when it is not a valid
  * schemaVersion-1 AnswerGiven or ErrorTagged. Normalises: chosen "E" forces confidence "none" (AT-C5).
- * Unknown extra fields are dropped from the returned object.
+ * Unknown extra fields are dropped from the returned object. `at` is normalised to UTC ISO form
+ * (e.g. "...+05:30" -> "...Z") so that sorting by text equals sorting by time.
  */
 export function validateEvent(raw: unknown): LearningEvent | string {
   if (!isObject(raw)) return `not an object: ${show(raw)}`;
@@ -42,7 +43,7 @@ export function validateEvent(raw: unknown): LearningEvent | string {
   const base = {
     eventId: r.eventId as string,
     deviceId: r.deviceId as string,
-    at: r.at,
+    at: new Date(r.at).toISOString(), // normalised to UTC so text order is time order
     schemaVersion: 1 as const,
     sessionId: r.sessionId as string,
   };
@@ -53,7 +54,7 @@ export function validateEvent(raw: unknown): LearningEvent | string {
     if (typeof r.confidence !== "string" || !CONFIDENCES.includes(r.confidence)) return `bad confidence: ${showBare(r.confidence)}`;
     if (typeof r.timeMs !== "number" || !Number.isFinite(r.timeMs) || r.timeMs < 0) return `bad timeMs: ${show(r.timeMs)}`;
     if (typeof r.mode !== "string" || !MODES.includes(r.mode)) return `bad mode: ${showBare(r.mode)}`;
-    if (typeof r.contentVersion !== "string") return `bad contentVersion: ${show(r.contentVersion)}`;
+    if (typeof r.contentVersion !== "string" || r.contentVersion === "") return `bad contentVersion: ${show(r.contentVersion)}`;
     const chosen = r.chosen as AnswerGiven["chosen"];
     const ev: AnswerGiven = {
       type: "answer",
