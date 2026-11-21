@@ -54,6 +54,17 @@ export default function App() {
     return () => window.removeEventListener("online", syncNow);
   }, [syncNow]);
 
+  // New content (a new paper, fixed keys, topic names) arrives on the next online launch.
+  useEffect(() => {
+    const t = store.token();
+    if (!t || !navigator.onLine) return;
+    fetchBundle(t)
+      .then((b) => {
+        if (b.version !== store.bundle()?.version) { store.setBundle(b); setBundle(b); }
+      })
+      .catch(() => { /* offline or GitHub unreachable: keep the cached bundle */ });
+  }, [token]);
+
   const record = useCallback((e: LearningEvent) => {
     store.addEvent(e);
     setLog(readLog());

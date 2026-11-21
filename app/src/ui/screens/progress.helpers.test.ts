@@ -9,7 +9,7 @@ import {
 
 const mistake = (over: Partial<MistakeState> = {}): MistakeState => ({
   conceptId: "ccse4.ta.u4.k_terms", topicId: "ccse4.ta.u4.k_terms", unitId: "ccse4.ta.u4", stage: "logged",
-  misconception: false, streak: 0, streakStartDay: null, transferDone: false, wrongQuestionIds: ["q1"],
+  misconception: false, streak: 0, streakStartDay: null, transferDone: false, wrongQuestionIds: ["q1"], sureWrongQuestionIds: [], transferPossible: true,
   loggedDay: "2026-11-21", retestDay: "2026-11-22", lastWrongAt: "2026-11-21T05:00:00Z", lastWrongEventId: "e1",
   reason: null, fixedAt: null, episodes: 1, ...over,
 });

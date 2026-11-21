@@ -145,7 +145,7 @@ function QuickCard({ plan, onStart }: { plan: TodayProps["state"]["plan"]; onSta
       </article>
     );
   }
-  const dueIds = new Set(plan.review.cardIds.filter((id) => id.startsWith("q:")).map((id) => id.slice(2)));
+  const dueIds = new Set(plan.review.questionIds); // retests and due revision questions
   const due = plan.quick.filter((id) => dueIds.has(id)).length;
   const rest = k - due;
   const source =

@@ -157,9 +157,10 @@ export function answeredOn(log: LearningEvent[], day: string): number {
   return n;
 }
 
-/** Today's planned total: the practice (or diagnostic) set plus every review item. */
+/** Today's planned total: the practice (or diagnostic) set plus every review question and non-question card. */
 export function plannedTotal(plan: DailyPlan): number {
-  return plan.practiceSet.length + plan.review.retestConceptIds.length + plan.review.cardIds.length;
+  const otherCards = plan.review.cardIds.filter((id) => !id.startsWith("q:")).length;
+  return plan.practiceSet.length + plan.review.questionIds.length + otherCards;
 }
 
 /** Ring fill 0..1. Nothing planned but something answered counts as full. */

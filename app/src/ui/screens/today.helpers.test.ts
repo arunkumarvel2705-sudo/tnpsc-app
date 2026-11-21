@@ -24,7 +24,7 @@ const skill = (over: Partial<SkillState> = {}): SkillState => ({
 });
 const plan = (over: Partial<DailyPlan> = {}): DailyPlan => ({
   date: "2026-11-21", focus: pick(), mode: "diagnostic", practiceSet: ["a", "b", "c"], olderTopicQuestionIds: [],
-  review: { retestConceptIds: ["x"], cardIds: ["q:a", "q:b"], estMinutes: 2 }, quick: ["a"], ...over,
+  review: { retestConceptIds: ["x"], cardIds: ["q:a", "q:b"], questionIds: ["x1", "a", "b"], estMinutes: 2 }, quick: ["a"], ...over,
 });
 const ans = (at: string, id = "q"): AnswerGiven => ({
   type: "answer", eventId: `${id}-${at}`, deviceId: "d", at, schemaVersion: 1, sessionId: "s", questionId: id, chosen: "A",
