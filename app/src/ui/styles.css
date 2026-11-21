@@ -63,3 +63,18 @@ input { width: 100%; font: inherit; font-size: 16px; padding: 12px; border-radiu
 .miss { border-top: 1px solid var(--line); padding: 8px 0; }
 .miss summary { cursor: pointer; }
 .miss ul { padding-left: 18px; margin: 6px 0; }
+/* v1 shell */
+button.wide { width: 100%; }
+.pill.bad { color: var(--bad); background: var(--bad-bg); }
+:root { --miss: #9a6700; --miss-bg: #fff4d6; }
+@media (prefers-color-scheme: dark) { :root { --miss: #e3b341; --miss-bg: #2e2510; } }
+/* Calm colour: red only for misconceptions; an ordinary miss is amber. */
+.opt.missed { background: var(--miss-bg); border-color: var(--miss); }
+.verdict.missed { border-color: var(--miss); }
+.verdict.missed .big { color: var(--miss); }
+.tabs-pad { padding-bottom: 96px; }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--card); border-top: 1px solid var(--line); padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); z-index: 5; }
+.tabbar button { flex: 1; border: 0; background: none; color: var(--muted); font-size: 14px; }
+.tabbar button.on { color: var(--accent); font-weight: 700; }
+.settings { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 18px 0; }
+.settings button { min-height: 40px; }

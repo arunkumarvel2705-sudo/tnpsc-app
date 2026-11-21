@@ -1,7 +1,8 @@
 // Local, offline-first store (NFR-02). Everything is wrapped: storage can be unavailable or full.
 import type { ContentBundle, LearningEvent } from "../core/types";
+import type { Session } from "../ui/session";
 
-const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress" };
+const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session" };
 
 function get<T>(key: string, fallback: T): T {
   try {
@@ -44,5 +45,13 @@ export const store = {
   progress: () => get<Record<string, number>>(K.progress, {}),
   setProgress(section: string, index: number) {
     set(K.progress, { ...store.progress(), [section]: index });
+  },
+  /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
+  session: () => get<Session | null>(K.session, null),
+  setSession(s: Session | null) {
+    if (s) set(K.session, s);
+    else {
+      try { localStorage.removeItem(K.session); } catch { /* ignore */ }
+    }
   },
 };
