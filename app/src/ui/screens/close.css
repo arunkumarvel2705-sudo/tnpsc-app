@@ -1,0 +1,26 @@
+/* Session close. Calm colour: red only for wrong-while-sure; other misses amber. */
+.wrap.close { padding-bottom: 16px; }
+.close-lead { margin: 0 0 12px; font-size: 17px; }
+.close-counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin: 0; }
+.close-counts > div { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+.close-counts dt { font-size: 13px; color: var(--muted); }
+.close-counts dd { margin: 0; font-size: 22px; font-weight: 600; }
+.close-counts > div.bad { border-color: var(--bad); background: var(--bad-bg); }
+.close-counts > div.bad dt, .close-counts > div.bad dd { color: var(--bad); }
+
+.close-hint { margin: -4px 0 4px; }
+.slip { border-top: 1px solid var(--line); padding: 12px 0 12px 12px; border-left: 3px solid var(--miss); margin-top: 8px; }
+.slip.sure { border-left-color: var(--bad); }
+.slip-head { display: flex; align-items: baseline; gap: 10px; }
+.slip-sure { font-size: 13px; font-weight: 600; color: var(--bad); }
+.slip-stem { margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slip-stem.ta { line-height: 1.8; }
+.slip-answer { margin: 0 0 8px; color: var(--muted); }
+.slip-answer b { color: var(--ink); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { min-height: 48px; border-radius: 99px; padding: 8px 14px; font-size: 15px; }
+.chip.on { background: var(--chosen); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.close-foot { position: sticky; bottom: 0; background: var(--bg); padding: 8px 0 calc(8px + env(safe-area-inset-bottom)); }
+.close-foot p { margin: 0 0 8px; }
