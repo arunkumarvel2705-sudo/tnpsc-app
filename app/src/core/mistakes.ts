@@ -5,9 +5,12 @@
 //   logged  - answered wrong; retest is due the next IST day (retestDay = loggedDay + 1)
 //   spaced  - at least one counted correct + sure answer since the last wrong; FSRS times further retests
 //   fixed   - streak >= 3 AND daysBetween(streakStartDay, day of the latest counted answer) >= 14
-//             AND (not misconception OR transferDone)
+//             AND (not misconception OR transferDone OR not transferPossible)
+//   transferPossible = the concept has at least one other learnable question (active, not keyed ALL);
+//   without one a misconception could never be fixed (review finding 8).
 //
-// Processing, in sortEvents order, scored answers only (scoring.outcome !== "unscored"), keyed by conceptKey(q):
+// Processing, in sortEvents order, learnable answers only (scoring.learningOutcome !== "unscored": deleted
+// and ALL-keyed questions carry no evidence), keyed by conceptKey(q):
 //   wrong (any confidence, E included):
 //     no state, or state fixed -> new episode: stage logged, streak 0, streakStartDay null,
 //                                 misconception = (confidence === "sure"), transferDone false,
@@ -25,7 +28,7 @@
 //   E always arrives with confidence "none" (AT-C5) so it can never set misconception.
 // reason = reason of the latest ErrorTagged whose answerEventId is lastWrongEventId, else null.
 import { conceptKey } from "./content";
-import { effectiveConfidence, outcome, sortEvents } from "./scoring";
+import { effectiveConfidence, learningOutcome, sortEvents } from "./scoring";
 import { addDays, daysBetween, localDay } from "./time";
 import type { ErrorReason, LearningEvent, Question } from "./types";
 
@@ -40,7 +43,9 @@ export interface MistakeState {
   streak: number;
   streakStartDay: string | null;
   transferDone: boolean;
-  wrongQuestionIds: string[]; // sorted ascending
+  wrongQuestionIds: string[]; // questions answered wrong in the current episode, sorted
+  sureWrongQuestionIds: string[]; // the subset answered wrong while sure, sorted (feeds the skill map)
+  transferPossible: boolean; // another learnable question on this concept exists
   loggedDay: string;
   retestDay: string;
   lastWrongAt: string;
@@ -55,12 +60,19 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
   const states = new Map<string, MistakeState>();
   // Working sets for wrongQuestionIds; copied into sorted arrays on output.
   const wrongIds = new Map<string, Set<string>>();
+  const sureWrongIds = new Map<string, Set<string>>();
+  // Learnable questions per concept, to know whether a transfer question can exist.
+  const conceptSize = new Map<string, number>();
+  for (const q of questions.values()) {
+    if (q.status === "deleted" || q.accepted === "ALL") continue;
+    conceptSize.set(conceptKey(q), (conceptSize.get(conceptKey(q)) ?? 0) + 1);
+  }
 
   for (const e of sorted) {
     if (e.type !== "answer") continue;
     const q = questions.get(e.questionId);
     if (!q) continue;
-    const o = outcome(q, e.chosen);
+    const o = learningOutcome(q, e.chosen);
     if (o === "unscored") continue;
     const key = conceptKey(q);
     const confidence = effectiveConfidence(e.chosen, e.confidence); // E is always "none" (AT-C5)
@@ -72,6 +84,9 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
       const ids = open ? wrongIds.get(key)! : new Set<string>();
       ids.add(q.id);
       wrongIds.set(key, ids);
+      const sure = open ? sureWrongIds.get(key)! : new Set<string>();
+      if (confidence === "sure") sure.add(q.id);
+      sureWrongIds.set(key, sure);
       states.set(key, {
         conceptId: key,
         topicId: q.topicId ?? null,
@@ -82,6 +97,8 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
         streakStartDay: null,
         transferDone: false,
         wrongQuestionIds: [],
+        sureWrongQuestionIds: [],
+        transferPossible: (conceptSize.get(key) ?? 0) >= 2,
         loggedDay: day,
         retestDay: addDays(day, 1),
         lastWrongAt: e.at,
@@ -109,7 +126,7 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
       prev.streak >= 3 &&
       prev.streakStartDay !== null &&
       daysBetween(prev.streakStartDay, day) >= 14 &&
-      (!prev.misconception || prev.transferDone)
+      (!prev.misconception || prev.transferDone || !prev.transferPossible)
     ) {
       prev.stage = "fixed";
       prev.fixedAt = e.at;
@@ -122,6 +139,7 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
 
   for (const [key, st] of states) {
     st.wrongQuestionIds = [...wrongIds.get(key)!].sort();
+    st.sureWrongQuestionIds = [...sureWrongIds.get(key)!].sort();
     st.reason = reasons.get(st.lastWrongEventId) ?? null;
   }
   return states;
