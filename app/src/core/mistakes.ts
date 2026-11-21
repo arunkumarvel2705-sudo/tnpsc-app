@@ -24,6 +24,9 @@
 //   correct, no state or fixed: nothing
 //   E always arrives with confidence "none" (AT-C5) so it can never set misconception.
 // reason = reason of the latest ErrorTagged whose answerEventId is lastWrongEventId, else null.
+import { conceptKey } from "./content";
+import { effectiveConfidence, outcome, sortEvents } from "./scoring";
+import { addDays, daysBetween, localDay } from "./time";
 import type { ErrorReason, LearningEvent, Question } from "./types";
 
 export type MistakeStage = "logged" | "spaced" | "fixed";
@@ -47,11 +50,90 @@ export interface MistakeState {
   episodes: number;
 }
 
-export function mistakeStates(_log: LearningEvent[], _questions: Map<string, Question>): Map<string, MistakeState> {
-  throw new Error("not implemented");
+export function mistakeStates(log: LearningEvent[], questions: Map<string, Question>): Map<string, MistakeState> {
+  const sorted = sortEvents(log);
+  const states = new Map<string, MistakeState>();
+  // Working sets for wrongQuestionIds; copied into sorted arrays on output.
+  const wrongIds = new Map<string, Set<string>>();
+
+  for (const e of sorted) {
+    if (e.type !== "answer") continue;
+    const q = questions.get(e.questionId);
+    if (!q) continue;
+    const o = outcome(q, e.chosen);
+    if (o === "unscored") continue;
+    const key = conceptKey(q);
+    const confidence = effectiveConfidence(e.chosen, e.confidence); // E is always "none" (AT-C5)
+    const day = localDay(e.at);
+    const prev = states.get(key);
+
+    if (o === "wrong") {
+      const open = prev !== undefined && prev.stage !== "fixed";
+      const ids = open ? wrongIds.get(key)! : new Set<string>();
+      ids.add(q.id);
+      wrongIds.set(key, ids);
+      states.set(key, {
+        conceptId: key,
+        topicId: q.topicId ?? null,
+        unitId: q.unitId ?? null,
+        stage: "logged",
+        misconception: open ? prev.misconception || confidence === "sure" : confidence === "sure",
+        streak: 0,
+        streakStartDay: null,
+        transferDone: false,
+        wrongQuestionIds: [],
+        loggedDay: day,
+        retestDay: addDays(day, 1),
+        lastWrongAt: e.at,
+        lastWrongEventId: e.eventId,
+        reason: null,
+        fixedAt: null,
+        episodes: open ? prev.episodes : (prev?.episodes ?? 0) + 1,
+      });
+      continue;
+    }
+
+    // correct
+    if (!prev || prev.stage === "fixed") continue;
+    if (confidence !== "sure") {
+      prev.streak = 0;
+      prev.streakStartDay = null;
+      continue;
+    }
+    if (day < prev.retestDay) continue; // same-day re-answer proves nothing
+    prev.streak += 1;
+    if (prev.streak === 1) prev.streakStartDay = day;
+    prev.stage = "spaced";
+    if (!wrongIds.get(key)!.has(q.id)) prev.transferDone = true;
+    if (
+      prev.streak >= 3 &&
+      prev.streakStartDay !== null &&
+      daysBetween(prev.streakStartDay, day) >= 14 &&
+      (!prev.misconception || prev.transferDone)
+    ) {
+      prev.stage = "fixed";
+      prev.fixedAt = e.at;
+    }
+  }
+
+  // reason: the latest ErrorTagged explaining the last wrong answer.
+  const reasons = new Map<string, ErrorReason>();
+  for (const e of sorted) if (e.type === "errorTag") reasons.set(e.answerEventId, e.reason);
+
+  for (const [key, st] of states) {
+    st.wrongQuestionIds = [...wrongIds.get(key)!].sort();
+    st.reason = reasons.get(st.lastWrongEventId) ?? null;
+  }
+  return states;
 }
 
 /** States not fixed, sorted: misconceptions first, then retestDay, then conceptId. */
-export function openMistakes(_states: Map<string, MistakeState>): MistakeState[] {
-  throw new Error("not implemented");
+export function openMistakes(states: Map<string, MistakeState>): MistakeState[] {
+  return [...states.values()]
+    .filter((s) => s.stage !== "fixed")
+    .sort((a, b) => {
+      if (a.misconception !== b.misconception) return a.misconception ? -1 : 1;
+      if (a.retestDay !== b.retestDay) return a.retestDay < b.retestDay ? -1 : 1;
+      return a.conceptId < b.conceptId ? -1 : a.conceptId > b.conceptId ? 1 : 0;
+    });
 }
