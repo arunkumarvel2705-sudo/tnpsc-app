@@ -38,6 +38,16 @@ describe("wrongIds", () => {
     const log = [ans("g1", "E"), ans("t2", "B"), ans("t1", "A"), ans("g2", "C")];
     expect(wrongIds(log, bundle, "m1", "p1").length).toBe(mockReport(log, bundle, "m1", "p1", 0).wrong);
   });
+  it("stays inside the mock's paper when the bundle holds two", () => {
+    const two: ContentBundle = {
+      ...bundle,
+      papers: [{ id: "p0", title: "Newer", date: "2026-01-01", sections: [] }, ...bundle.papers],
+      questions: [q("n1", 1, "ccse4.ta.u1", { paperId: "p0" }), ...bundle.questions],
+    };
+    const log = [ans("n1", "B"), ans("t2", "B")];
+    expect(wrongIds(log, two, "m1", "p1")).toEqual(["t2"]);
+    expect(wrongIds(log, two, "m1", "p0")).toEqual(["n1"]);
+  });
 });
 
 describe("format", () => {

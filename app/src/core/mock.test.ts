@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLog } from "./events";
-import { MARKS_PER_QUESTION, MOCK_SECONDS, mockHistory, mockReport } from "./mock";
+import { MARKS_PER_QUESTION, MOCK_SECONDS, mockHistory, mockPaperChoices, mockPaperId, mockReport, paperQuestionIds } from "./mock";
 import type { AnswerGiven, Confidence, ContentBundle, ErrorTagged, LearningEvent, Option, Question } from "./types";
 
 // Synthetic paper, no real exam text. 10 questions:
@@ -204,8 +204,8 @@ describe("mockHistory", () => {
   it("has one entry per mock session, newest first, ignoring practice", () => {
     const log = buildLog(older(), newer(), [ans("t1", "A", "sure", { sessionId: "p1", mode: "practice", at: "2026-04-01T00:00:00.000Z" })]);
     expect(mockHistory(log, bundle())).toEqual([
-      { sessionId: "m-new", submittedAt: "2026-03-05T09:00:00.000Z", answered: 2, marks: 1.5, maxMarks: 13.5 },
-      { sessionId: "m-old", submittedAt: "2026-02-01T09:00:00.000Z", answered: 8, marks: 6, maxMarks: 13.5 },
+      { sessionId: "m-new", paperId: "p1", submittedAt: "2026-03-05T09:00:00.000Z", answered: 2, marks: 1.5, maxMarks: 13.5 },
+      { sessionId: "m-old", paperId: "p1", submittedAt: "2026-02-01T09:00:00.000Z", answered: 8, marks: 6, maxMarks: 13.5 },
     ]);
   });
 
@@ -217,7 +217,7 @@ describe("mockHistory", () => {
     const log = buildLog(older(), newer());
     for (const h of mockHistory(log, bundle())) {
       const r = mockReport(log, bundle(), h.sessionId, "p1", 0);
-      expect(h).toEqual({ sessionId: r.sessionId, submittedAt: r.submittedAt, answered: r.answered, marks: r.marks, maxMarks: r.maxMarks });
+      expect(h).toEqual({ sessionId: r.sessionId, paperId: r.paperId, submittedAt: r.submittedAt, answered: r.answered, marks: r.marks, maxMarks: r.maxMarks });
     }
   });
 
@@ -239,5 +239,78 @@ describe("mockHistory", () => {
     const a = mockHistory(buildLog(older(), newer()), bundle());
     const b = mockHistory(buildLog(newer(), older().reverse()), bundle());
     expect(b).toEqual(a);
+  });
+});
+
+// Two papers in one bundle, newest first: p2 (new, 4 questions, invented) before p1 (the 10 above).
+function twoPapers(): ContentBundle {
+  const b = bundle();
+  const p2 = [
+    q("n1", 1, "tamil", "ccse4.ta.u1", { paperId: "p2" }),
+    q("n2", 2, "gs_apt", "ccse4.gs.u1", { paperId: "p2" }),
+    q("n3", 3, "gs_apt", "ccse4.gs.u1", { paperId: "p2", accepted: "ALL" }),
+    q("n4", 4, "gs_apt", "ccse4.apt.u1", { paperId: "p2" }),
+  ];
+  return {
+    ...b,
+    papers: [{ id: "p2", title: "Synthetic new", date: "2026-01-01", sections: [] }, ...b.papers],
+    questions: [...p2, ...b.questions],
+  };
+}
+
+describe("multi-paper bundles", () => {
+  it("paperQuestionIds returns only that paper's questions, in bundle order", () => {
+    const b = twoPapers();
+    expect(paperQuestionIds(b, "p2")).toEqual(["n1", "n2", "n3", "n4"]);
+    expect(paperQuestionIds(b, "p1")).toEqual(["t1", "t2", "t3", "t4", "g1", "g2", "g3", "a1", "a2", "a3"]);
+    expect(paperQuestionIds(b, "zz")).toEqual([]);
+  });
+
+  it("mockReport counts and scores against the chosen paper only", () => {
+    const b = twoPapers();
+    const r = mockReport([ans("n1", "A", "sure"), ans("n3", "C", "guess"), ans("n4", "B", "sure")], b, "m1", "p2", 0);
+    expect(r).toMatchObject({ total: 4, answered: 3, unanswered: 1, correct: 2, wrong: 1, marks: 3, maxMarks: 6, misconceptionIds: ["n4"] });
+    // The other paper's report is untouched by these answers and keeps its own size.
+    expect(mockReport(mockOne(), b, "m1", "p1", 0)).toEqual(mockReport(mockOne(), bundle(), "m1", "p1", 0));
+  });
+
+  it("mockPaperId takes the paper of the questions answered, the most common one if they disagree", () => {
+    const b = twoPapers();
+    expect(mockPaperId([ans("n1", "A", "sure"), ans("n2", "A", "sure")], b)).toBe("p2");
+    expect(mockPaperId(mockOne(), b)).toBe("p1");
+    expect(mockPaperId([ans("n1", "A", "sure"), ans("t1", "A", "sure"), ans("t2", "A", "sure")], b)).toBe("p1");
+    // a question answered twice counts once
+    expect(mockPaperId([ans("n1", "A", "sure"), ans("n1", "B", "sure"), ans("t1", "A", "sure")], b)).toBe("p2");
+  });
+
+  it("mockPaperId breaks ties by bundle order (newest first) and falls back to papers[0]", () => {
+    const b = twoPapers();
+    expect(mockPaperId([ans("t1", "A", "sure"), ans("n1", "A", "sure")], b)).toBe("p2");
+    expect(mockPaperId([ans("gone", "A", "sure")], b)).toBe("p2");
+    expect(mockPaperId([], { ...b, papers: [] })).toBe("");
+  });
+
+  it("mockHistory gives each session its own paper and scores it against that paper", () => {
+    const b = twoPapers();
+    const log = buildLog(
+      mockOne().map((e) => ({ ...e, eventId: `a-${e.eventId}`, sessionId: "m-p1", at: "2026-02-01T09:00:00.000Z" })),
+      [ans("n1", "A", "sure", { sessionId: "m-p2", at: "2026-03-01T09:00:00.000Z" }), ans("n2", "B", "guess", { sessionId: "m-p2", at: "2026-03-01T09:00:00.000Z" })],
+    );
+    expect(mockHistory(log, b)).toEqual([
+      { sessionId: "m-p2", paperId: "p2", submittedAt: "2026-03-01T09:00:00.000Z", answered: 2, marks: 1.5, maxMarks: 6 },
+      { sessionId: "m-p1", paperId: "p1", submittedAt: "2026-02-01T09:00:00.000Z", answered: 8, marks: 6, maxMarks: 13.5 },
+    ]);
+  });
+
+  it("mockPaperChoices lists papers newest first with their size and latest mock", () => {
+    const b = twoPapers();
+    const h = (sessionId: string, paperId: string, submittedAt: string, marks: number) => ({ sessionId, paperId, submittedAt, answered: 1, marks, maxMarks: 6 });
+    const history = [h("x3", "p2", "2026-03-03T00:00:00.000Z", 4.5), h("x2", "p2", "2026-03-02T00:00:00.000Z", 3), h("x1", "zz", "2026-03-01T00:00:00.000Z", 0)];
+    expect(mockPaperChoices(b, history)).toEqual([
+      { paperId: "p2", title: "Synthetic new", questions: 4, last: history[0] },
+      { paperId: "p1", title: "Synthetic", questions: 10, last: null },
+    ]);
+    // order of the history list does not matter
+    expect(mockPaperChoices(b, [...history].reverse())[0].last).toEqual(history[0]);
   });
 });

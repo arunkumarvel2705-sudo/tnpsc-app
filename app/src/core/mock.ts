@@ -20,6 +20,10 @@
 //   timeUsedMs  : passed in by the caller (submission time minus start, capped at MOCK_SECONDS).
 // History: one entry per mock session in the log, newest first, with marks recomputed under the
 // current key (so a key revision updates old mocks too).
+// Papers: a bundle holds every paper of one exam path (newest first). A mock is always one paper, and
+// every count above is against that paper's questions only (paperQuestionIds). Answer events carry no
+// paper id (the event format is fixed), so history derives each session's paper from the paperId of
+// the questions it answered (mockPaperId).
 import { answersOf } from "./events";
 import { effectiveConfidence, latestAnswers, learningOutcome, outcome } from "./scoring";
 import type { AnswerGiven, ContentBundle, LearningEvent, Question } from "./types";
@@ -56,10 +60,32 @@ export interface MockReport {
   timeUsedMs: number;
 }
 
-/** Questions of a paper, in paper order. A bundle with one paper: all questions. */
+/** Questions of one paper, in bundle (paper) order. */
 export function paperQuestionIds(bundle: ContentBundle, paperId: string): string[] {
-  void paperId; // v1 bundles hold one paper per file; multi-paper bundles will filter by source.paper here
-  return bundle.questions.map((q) => q.id);
+  return bundle.questions.filter((q) => q.paperId === paperId).map((q) => q.id);
+}
+
+/**
+ * The paper a mock session sat, from the questions it answered. A mock serves one paper, so they all
+ * agree; if they ever disagree (a hand-edited log, a question moved between papers by a content fix) the
+ * paper with the most answered questions wins, ties going to the paper listed first in the bundle (the
+ * newer one). Answers to questions no longer in the bundle are ignored; with none left, papers[0].
+ */
+export function mockPaperId(answers: AnswerGiven[], bundle: ContentBundle): string {
+  const byId = new Map(bundle.questions.map((q) => [q.id, q]));
+  const counts = new Map<string, number>();
+  for (const qid of new Set(answers.map((a) => a.questionId))) {
+    const q = byId.get(qid);
+    if (q) counts.set(q.paperId, (counts.get(q.paperId) ?? 0) + 1);
+  }
+  const order = new Map(bundle.papers.map((p, i) => [p.id, i]));
+  const ranked = [...counts.entries()].sort(([a, na], [b, nb]) => {
+    if (na !== nb) return nb - na;
+    const ia = order.get(a) ?? Infinity;
+    const ib = order.get(b) ?? Infinity;
+    return ia !== ib ? ia - ib : a < b ? -1 : a > b ? 1 : 0;
+  });
+  return ranked[0]?.[0] ?? bundle.papers[0]?.id ?? "";
 }
 
 export function mockReport(
@@ -181,6 +207,7 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
 
 export interface MockHistoryEntry {
   sessionId: string;
+  paperId: string; // derived from the questions answered (mockPaperId)
   submittedAt: string;
   answered: number;
   marks: number;
@@ -188,8 +215,6 @@ export interface MockHistoryEntry {
 }
 
 export function mockHistory(log: LearningEvent[], bundle: ContentBundle): MockHistoryEntry[] {
-  // v1: one paper per bundle; a mock's answers do not carry the paper id, so the bundle's paper is assumed.
-  const paperId = bundle.papers[0]?.id ?? "";
   const sessions = new Map<string, AnswerGiven[]>();
   for (const e of answersOf(log)) {
     if (e.mode !== "mock") continue;
@@ -199,10 +224,31 @@ export function mockHistory(log: LearningEvent[], bundle: ContentBundle): MockHi
   }
   return [...sessions.entries()]
     .map(([sessionId, mine]) => {
+      const paperId = mockPaperId(mine, bundle);
       const r = reportFrom(mine, bundle, sessionId, paperId, 0);
-      return { sessionId, submittedAt: r.submittedAt, answered: r.answered, marks: r.marks, maxMarks: r.maxMarks };
+      return { sessionId, paperId, submittedAt: r.submittedAt, answered: r.answered, marks: r.marks, maxMarks: r.maxMarks };
     })
     .sort((a, b) =>
       a.submittedAt !== b.submittedAt ? (a.submittedAt < b.submittedAt ? 1 : -1) : a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0,
     );
+}
+
+/** One row of the "which paper?" choice on the mock card. */
+export interface MockPaperChoice {
+  paperId: string;
+  title: string;
+  questions: number; // questions in the paper (deleted ones included: they are still on the sheet)
+  last: MockHistoryEntry | null; // the latest mock of this paper, if any
+}
+
+/** Every paper in the bundle, newest first (bundle order), each with its question count and last mock. */
+export function mockPaperChoices(bundle: ContentBundle, history: MockHistoryEntry[]): MockPaperChoice[] {
+  const last = new Map<string, MockHistoryEntry>();
+  for (const h of history) if (!last.has(h.paperId) || h.submittedAt > (last.get(h.paperId) as MockHistoryEntry).submittedAt) last.set(h.paperId, h);
+  return bundle.papers.map((p) => ({
+    paperId: p.id,
+    title: p.title,
+    questions: paperQuestionIds(bundle, p.id).length,
+    last: last.get(p.id) ?? null,
+  }));
 }
