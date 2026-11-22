@@ -2,7 +2,7 @@
 import { normalizeBundle, type RawBundle } from "../core/content";
 import type { ContentBundle, LearningEvent } from "../core/types";
 import type { MockDraft } from "../ui/mock";
-import type { Session } from "../ui/session";
+import { migrateProgress, migrateSession, type Session } from "../ui/session";
 
 const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session", mock: "tj.mock" };
 
@@ -64,9 +64,10 @@ export const store = {
   markSynced(ids: Set<string>) {
     set(K.pending, store.pending().filter((id) => !ids.has(id)));
   },
-  progress: () => get<Record<string, number>>(K.progress, {}),
-  setProgress(section: string, index: number) {
-    set(K.progress, { ...store.progress(), [section]: index });
+  /** Resume pointers by progressKey ("<paperId>:<section>"); older bare-section keys are migrated on read. */
+  progress: () => migrateProgress(get<Record<string, number>>(K.progress, {})),
+  setProgress(key: string, index: number) {
+    set(K.progress, { ...store.progress(), [key]: index }); // writes back migrated: bare keys go on first save
   },
   /** The mock in progress, saved on every change (AT-U6: the clock keeps running while the app is closed). */
   mock: () => get<MockDraft | null>(K.mock, null),
@@ -77,7 +78,10 @@ export const store = {
     }
   },
   /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
-  session: () => get<Session | null>(K.session, null),
+  session(): Session | null {
+    const s = get<Session | null>(K.session, null);
+    return s ? migrateSession(s) : null;
+  },
   setSession(s: Session | null) {
     if (s) set(K.session, s);
     else {

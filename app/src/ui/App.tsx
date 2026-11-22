@@ -1,5 +1,6 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { sectionQuestionIds } from "../core/content";
 import { computeState } from "../core/engine";
 import { MOCK_SECONDS, mockHistory, mockPaperChoices, paperQuestionIds } from "../core/mock";
 import { buildLog, validateEvent } from "../core/events";
@@ -15,7 +16,7 @@ import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
 import { Today } from "./screens/Today";
-import { newSession, type Session, type SessionKind } from "./session";
+import { newSession, progressKey, type Session, type SessionKind } from "./session";
 
 const PATH_EXAM = "CCSE-IV"; // v1 path: Group 4
 type Tab = "today" | "practice" | "progress";
@@ -142,10 +143,12 @@ export default function App() {
   const start = (kind: Exclude<SessionKind, "paper">, title: string, ids: string[]) => {
     if (ids.length) begin(newSession(kind, title, ids, new Date().toISOString(), crypto.randomUUID()));
   };
-  const startPaper = (section: Question["section"], title: string) => {
-    const ids = bundle.questions.filter((q) => q.section === section).map((q) => q.id);
-    const at = store.progress()[section] ?? 0;
-    const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), section);
+  const startPaper = (paperId: string, section: Question["section"], title: string) => {
+    const ids = sectionQuestionIds(bundle, paperId, section);
+    if (!ids.length) return;
+    const key = progressKey(paperId, section);
+    const at = store.progress()[key] ?? 0;
+    const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), key);
     begin({ ...s, index: at >= ids.length ? 0 : at });
   };
   const advance = (n: number) => {
