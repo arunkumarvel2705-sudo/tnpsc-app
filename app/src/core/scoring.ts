@@ -10,6 +10,15 @@ export function outcome(q: Question, chosen: Option): Outcome {
   return q.accepted.includes(chosen) ? "correct" : "wrong";
 }
 
+/**
+ * Outcome for learning state (mistakes, skill map, revision cards, planner). Same as `outcome`, except a
+ * question TNPSC keyed "ALL" is unscored: everyone got the mark, so the answer is no evidence either way.
+ * Marks summaries keep using `outcome`.
+ */
+export function learningOutcome(q: Question, chosen: Option): Outcome {
+  return q.accepted === "ALL" ? "unscored" : outcome(q, chosen);
+}
+
 /** Choosing E (Answer not known) always records confidence "none" (AT-C5). */
 export function effectiveConfidence(chosen: Option, tapped: Confidence | null): Confidence {
   return chosen === "E" ? "none" : tapped ?? "none";

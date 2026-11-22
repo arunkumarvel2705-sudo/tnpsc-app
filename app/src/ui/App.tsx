@@ -1,19 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { effectiveConfidence, latestAnswers, outcome, summarise } from "../core/scoring";
-import type { AnswerGiven, Confidence, ContentBundle, Option, Question } from "../core/types";
+// App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { computeState } from "../core/engine";
+import { buildLog, validateEvent } from "../core/events";
+import { localDay } from "../core/time";
+import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question } from "../core/types";
 import { AuthError, fetchBundle, pdfLink, pushEvents } from "../sync/github";
 import { store } from "../sync/store";
-import { matchTable, stemLines } from "./format";
+import { QuestionPlayer } from "./QuestionPlayer";
+import { Papers } from "./screens/Papers";
+import { Progress } from "./screens/Progress";
+import { SessionClose } from "./screens/SessionClose";
+import { Today } from "./screens/Today";
+import { newSession, type Session, type SessionKind } from "./session";
 
-type Screen = { name: "home" } | { name: "practice"; section: Question["section"] } | { name: "review"; section: Question["section"] };
+const PATH_EXAM = "CCSE-IV"; // v1 path: Group 4
+type Tab = "today" | "practice" | "progress";
+type View = { name: "tabs" } | { name: "session" } | { name: "close"; session: Session };
+
+/** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
+function readLog(): LearningEvent[] {
+  return buildLog(store.events().map(validateEvent).filter((e): e is LearningEvent => typeof e !== "string"));
+}
 
 export default function App() {
   const [token, setToken] = useState(store.token());
   const [bundle, setBundle] = useState<ContentBundle | null>(store.bundle());
-  const [events, setEvents] = useState<AnswerGiven[]>(store.events());
-  const [screen, setScreen] = useState<Screen>({ name: "home" });
+  const [log, setLog] = useState<LearningEvent[]>(readLog);
+  const [tab, setTab] = useState<Tab>("today");
+  const [view, setView] = useState<View>({ name: "tabs" });
+  const [active, setActive] = useState<Session | null>(store.session());
   const [sync, setSync] = useState<{ state: "idle" | "busy" | "error"; msg?: string }>({ state: "idle" });
   const [pending, setPending] = useState(store.pending().length);
+  const today = localDay(new Date().toISOString());
 
   const syncNow = useCallback(async () => {
     const t = store.token();
@@ -32,71 +50,91 @@ export default function App() {
 
   useEffect(() => {
     window.addEventListener("online", syncNow);
+    void syncNow();
     return () => window.removeEventListener("online", syncNow);
   }, [syncNow]);
 
-  const record = useCallback((e: AnswerGiven) => {
+  // New content (a new paper, fixed keys, topic names) arrives on the next online launch.
+  useEffect(() => {
+    const t = store.token();
+    if (!t || !navigator.onLine) return;
+    fetchBundle(t)
+      .then((b) => {
+        if (b.version !== store.bundle()?.version) { store.setBundle(b); setBundle(b); }
+      })
+      .catch(() => { /* offline or GitHub unreachable: keep the cached bundle */ });
+  }, [token]);
+
+  const record = useCallback((e: LearningEvent) => {
     store.addEvent(e);
-    setEvents(store.events());
+    setLog(readLog());
     setPending(store.pending().length);
     void syncNow();
   }, [syncNow]);
 
-  if (!token || !bundle) return <Setup onReady={(t, b) => { store.setToken(t); store.setBundle(b); setToken(t); setBundle(b); }} />;
+  const state = useMemo(() => (bundle ? computeState(log, bundle, today, PATH_EXAM) : null), [log, bundle, today]);
+  const answers = useMemo(() => log.filter((e): e is AnswerGiven => e.type === "answer"), [log]);
 
-  const questions = new Map(bundle.questions.map((q) => [q.id, q]));
-  if (screen.name === "practice")
-    return <Practice bundle={bundle} section={screen.section} token={token} onAnswer={record} onExit={() => setScreen({ name: "home" })} />;
-  if (screen.name === "review")
-    return <Review bundle={bundle} section={screen.section} events={events} onExit={() => setScreen({ name: "home" })} />;
+  if (!token || !bundle || !state) return <Setup onReady={(t, b) => { store.setToken(t); store.setBundle(b); setToken(t); setBundle(b); }} />;
+
+  const begin = (s: Session) => { store.setSession(s); setActive(s); setView({ name: "session" }); };
+  const start = (kind: Exclude<SessionKind, "paper">, title: string, ids: string[]) => {
+    if (ids.length) begin(newSession(kind, title, ids, new Date().toISOString(), crypto.randomUUID()));
+  };
+  const startPaper = (section: Question["section"], title: string) => {
+    const ids = bundle.questions.filter((q) => q.section === section).map((q) => q.id);
+    const at = store.progress()[section] ?? 0;
+    const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), section);
+    begin({ ...s, index: at >= ids.length ? 0 : at });
+  };
+  const advance = (n: number) => {
+    if (!active) return;
+    const s = { ...active, index: n };
+    if (s.paperSection) store.setProgress(s.paperSection, n);
+    if (n >= s.questionIds.length) { store.setSession(null); setActive(null); setView({ name: "close", session: s }); }
+    else { store.setSession(s); setActive(s); }
+  };
+  const openScan = async (pdfRef: string, page: number) => {
+    try { window.open(`${await pdfLink(token, pdfRef)}#page=${page}`, "_blank"); } catch (e) { alert((e as Error).message); }
+  };
+  const tag = (answerEventId: string, questionId: string, reason: ErrorReason) => record({
+    type: "errorTag", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at: new Date().toISOString(), schemaVersion: 1,
+    sessionId: view.name === "close" ? view.session.id : "tag", answerEventId, questionId, reason,
+  });
+
+  if (view.name === "session" && active)
+    return <QuestionPlayer bundle={bundle} session={active} deviceId={store.deviceId()} onAnswer={record} onAdvance={advance}
+      onExit={() => setView({ name: "tabs" })} onOpenScan={openScan} />;
+  if (view.name === "close")
+    return <SessionClose session={view.session} bundle={bundle} log={log} onTag={tag} onDone={() => { setView({ name: "tabs" }); setTab("today"); }} />;
 
   return (
-    <main className="wrap">
+    <main className="wrap tabs-pad">
       <header className="top">
         <h1>TNPSC JARVIS</h1>
-        <span className="pill">early version</span>
-      </header>
-      {bundle.papers.map((p) => (
-        <section key={p.id}>
-          <h2 className="paper">{p.title}</h2>
-          {p.sections.map((s) => {
-            const qs = bundle.questions.filter((q) => q.section === s.id);
-            const sum = summarise(events.filter((e) => questions.get(e.questionId)?.section === s.id), questions);
-            const at = store.progress()[s.id] ?? 0;
-            return (
-              <article className="card" key={s.id}>
-                <div className="card-head">
-                  <h3>{s.title}</h3>
-                  <span className="muted">{sum.answered}/{qs.length}</span>
-                </div>
-                <div className="bar"><div style={{ width: `${(sum.answered / qs.length) * 100}%` }} /></div>
-                {sum.scored > 0 && (
-                  <dl className="stats">
-                    <div><dt>Accuracy</dt><dd>{Math.round(sum.accuracy * 100)}%</dd></div>
-                    <div><dt>Sure & right</dt><dd>{sum.sureCorrect}</dd></div>
-                    <div><dt>Lucky guesses</dt><dd>{sum.luckyGuesses}</dd></div>
-                    <div><dt className="warn">Misconceptions</dt><dd className="warn">{sum.misconceptions}</dd></div>
-                  </dl>
-                )}
-                <div className="row">
-                  <button className="primary" onClick={() => setScreen({ name: "practice", section: s.id })}>
-                    {at === 0 ? "Start" : at >= qs.length ? "Practise again" : `Continue from Q${qs[at].n}`}
-                  </button>
-                  {sum.answered > 0 && <button onClick={() => setScreen({ name: "review", section: s.id })}>Review</button>}
-                </div>
-              </article>
-            );
-          })}
-        </section>
-      ))}
-      <footer className="foot">
-        <span>
-          {sync.state === "busy" ? "Syncing…" : sync.state === "error" ? `Sync failed: ${sync.msg}` : pending ? `${pending} answers waiting to sync` : "All answers synced to tnpsc-data"}
+        <span className={`pill ${sync.state === "error" ? "bad" : ""}`} title={sync.msg}>
+          {sync.state === "busy" ? "Syncing…" : sync.state === "error" ? "Sync failed" : pending ? `${pending} to sync` : "Synced"}
         </span>
-        {pending > 0 && sync.state !== "busy" && <button onClick={syncNow}>Sync now</button>}
-        <span className="muted">Content {bundle.version}</span>
-        <button className="link" onClick={() => { if (confirm("Remove the token from this device?")) { store.setToken(null); setToken(null); } }}>Sign out</button>
-      </footer>
+      </header>
+      {tab === "today" && <Today state={state} bundle={bundle} log={log} today={today} resumable={active}
+        onStart={start} onResume={() => setView({ name: "session" })} />}
+      {tab === "practice" && <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />}
+      {tab === "progress" && (
+        <>
+          <Progress state={state} bundle={bundle} log={log} today={today} onPractise={(title, ids) => start("quick", title, ids)} />
+          <footer className="settings muted small">
+            <span>Content {bundle.version}</span>
+            {sync.state === "error" && <span className="error">Sync failed: {sync.msg}</span>}
+            {pending > 0 && sync.state !== "busy" && <button onClick={syncNow}>Sync now</button>}
+            <button className="link" onClick={() => { if (confirm("Remove the token from this device?")) { store.setToken(null); setToken(null); } }}>Sign out</button>
+          </footer>
+        </>
+      )}
+      <nav className="tabbar">
+        {(["today", "practice", "progress"] as Tab[]).map((t) => (
+          <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</button>
+        ))}
+      </nav>
     </main>
   );
 }
@@ -112,155 +150,14 @@ function Setup({ onReady }: { onReady: (token: string, bundle: ContentBundle) =>
         <h3>Connect your content</h3>
         <p className="muted">Paste your fine-grained GitHub token once. It stays on this device and is sent only to api.github.com.</p>
         <input type="password" autoComplete="off" placeholder="github_pat_…" value={t} onChange={(e) => setT(e.target.value)} />
-        <button className="primary" disabled={!t.trim() || busy} onClick={async () => {
+        <button className="primary wide" disabled={!t.trim() || busy} onClick={async () => {
           setBusy(true); setErr(null);
           try { onReady(t.trim(), await fetchBundle(t.trim())); }
           catch (e) { setErr(e instanceof AuthError ? "GitHub refused this token. Check it covers tnpsc-content and tnpsc-data." : (e as Error).message); }
           finally { setBusy(false); }
-        }}>{busy ? "Loading 200 questions…" : "Connect"}</button>
+        }}>{busy ? "Loading questions…" : "Connect"}</button>
         {err && <p className="error">{err}</p>}
       </article>
-    </main>
-  );
-}
-
-type Phase = "choose" | "confidence" | "reveal";
-
-function Practice({ bundle, section, token, onAnswer, onExit }: {
-  bundle: ContentBundle; section: Question["section"]; token: string; onAnswer: (e: AnswerGiven) => void; onExit: () => void;
-}) {
-  const qs = useMemo(() => bundle.questions.filter((q) => q.section === section), [bundle, section]);
-  const byId = useMemo(() => new Map(bundle.questions.map((q) => [q.id, q])), [bundle]);
-  const [i, setI] = useState(() => { const p = store.progress()[section] ?? 0; return p >= qs.length ? 0 : p; });
-  const [phase, setPhase] = useState<Phase>("choose");
-  const [chosen, setChosen] = useState<Option | null>(null);
-  const [confidence, setConfidence] = useState<Confidence | null>(null);
-  const started = useRef(Date.now());
-  const sessionId = useRef(crypto.randomUUID());
-  const q = qs[i];
-  const lang = q.section === "tamil" ? "ta" : "en";
-  const text = q[lang] ?? q.en ?? q.ta!;
-  const passage = q.passage?.[lang] ?? (q.passageRef ? byId.get(q.passageRef)?.passage?.[lang] : undefined);
-
-  useEffect(() => { started.current = Date.now(); window.scrollTo(0, 0); }, [i]);
-
-  const submit = (opt: Option, conf: Confidence | null) => {
-    const c = effectiveConfidence(opt, conf);
-    setConfidence(c);
-    onAnswer({
-      type: "answer", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at: new Date().toISOString(), schemaVersion: 1,
-      sessionId: sessionId.current, questionId: q.id, chosen: opt, confidence: c, timeMs: Date.now() - started.current,
-      mode: "practice", contentVersion: bundle.version,
-    });
-    setPhase("reveal");
-  };
-  const pick = (opt: Option) => {
-    if (phase === "reveal") return;
-    setChosen(opt);
-    if (opt === "E") submit(opt, null);
-    else setPhase("confidence");
-  };
-  const next = () => {
-    const n = i + 1;
-    store.setProgress(section, n);
-    if (n >= qs.length) { onExit(); return; }
-    setI(n); setPhase("choose"); setChosen(null); setConfidence(null);
-  };
-
-  const result = chosen ? outcome(q, chosen) : null;
-  const table = q.format === "match" ? matchTable(text.stem) : null;
-  const optionClass = (o: Option) => {
-    if (phase !== "reveal") return o === chosen ? "opt chosen" : "opt";
-    const right = q.accepted === "ALL" || (o !== "E" && q.accepted.includes(o));
-    return `opt ${right ? "right" : o === chosen ? "wrongpick" : ""}`;
-  };
-
-  return (
-    <main className="wrap" lang={lang}>
-      <header className="qhead">
-        <button className="link" onClick={() => { store.setProgress(section, i); onExit(); }}>← Home</button>
-        <span className="muted">Q{q.n} · {i + 1}/{qs.length}</span>
-      </header>
-      <div className="bar thin"><div style={{ width: `${(i / qs.length) * 100}%` }} /></div>
-      {passage && <blockquote className="passage">{passage}</blockquote>}
-      <div className={`stem ${lang}`}>
-        {table ? (
-          <>
-            <p>{table.intro}</p>
-            <table className="match"><tbody>
-              {table.left.map((l, k) => (<tr key={k}><td>({"abcd"[k]}) {l}</td><td>{k + 1}. {table.right[k]}</td></tr>))}
-            </tbody></table>
-            <p className="muted small">Options list (a) (b) (c) (d) in order.</p>
-          </>
-        ) : stemLines(text.stem).map((l, k) => <p key={k}>{l}</p>)}
-        {q.hasFigure && <p className="muted small">This question has a figure. Open the scan to see it.</p>}
-      </div>
-      <div className={`opts ${lang}`}>
-        {(Object.keys(text.options) as Option[]).map((o) => (
-          <button key={o} className={optionClass(o)} onClick={() => pick(o)} disabled={phase === "reveal"}>
-            <b>({o})</b> <span>{text.options[o]}</span>
-          </button>
-        ))}
-      </div>
-      {phase === "confidence" && chosen && (
-        <div className="confidence">
-          <p>How sure are you?</p>
-          <div className="row three">
-            <button onClick={() => submit(chosen, "sure")}>Sure</button>
-            <button onClick={() => submit(chosen, "guess")}>Guess</button>
-            <button onClick={() => submit(chosen, "none")}>No idea</button>
-          </div>
-        </div>
-      )}
-      {phase === "reveal" && (
-        <div className={`verdict ${result}`}>
-          <p className="big">
-            {result === "correct" ? (q.accepted === "ALL" ? "Counted correct: TNPSC gave marks to everyone" : "Correct")
-              : result === "unscored" ? "Not scored: TNPSC deleted this question"
-              : confidence === "sure" ? "Wrong, and you were sure: misconception logged" : "Wrong"}
-          </p>
-          <p className="small">
-            Final key: {q.accepted === "ALL" ? "all options accepted" : q.accepted.join(" / ")}
-            {q.accepted !== "ALL" && q.accepted.length > 1 ? " (more than one accepted)" : ""}
-            {" · "}{q.source.paper} page {q.source.page}
-          </p>
-          <div className="row">
-            <button onClick={async () => { try { window.open(`${await pdfLink(token, q.source.pdfRef)}#page=${q.source.page}`, "_blank"); } catch (e) { alert((e as Error).message); } }}>Open scan</button>
-            <button className="primary" onClick={next}>{i + 1 >= qs.length ? "Finish" : "Next"}</button>
-          </div>
-        </div>
-      )}
-    </main>
-  );
-}
-
-function Review({ bundle, section, events, onExit }: { bundle: ContentBundle; section: Question["section"]; events: AnswerGiven[]; onExit: () => void }) {
-  const qs = bundle.questions.filter((q) => q.section === section);
-  const latest = latestAnswers(events);
-  const rows = qs.map((q) => ({ q, e: latest.get(q.id) })).filter((r) => r.e);
-  const groups: [string, typeof rows][] = [
-    ["Misconceptions (wrong but sure)", rows.filter((r) => outcome(r.q, r.e!.chosen) === "wrong" && r.e!.confidence === "sure")],
-    ["Other wrong answers", rows.filter((r) => outcome(r.q, r.e!.chosen) === "wrong" && r.e!.confidence !== "sure")],
-    ["Lucky guesses (right but guessed)", rows.filter((r) => outcome(r.q, r.e!.chosen) === "correct" && r.e!.confidence === "guess")],
-  ];
-  return (
-    <main className="wrap">
-      <header className="qhead"><button className="link" onClick={onExit}>← Home</button><span className="muted">Review</span></header>
-      {groups.map(([title, list]) => (
-        <section key={title} className="card">
-          <h3>{title} <span className="muted">· {list.length}</span></h3>
-          {list.length === 0 ? <p className="muted">None.</p> : list.map(({ q, e }) => {
-            const t = q.ta ?? q.en!;
-            return (
-              <details key={q.id} className="miss">
-                <summary>Q{q.n} · you chose {e!.chosen}, key {q.accepted === "ALL" ? "ALL" : q.accepted.join("/")}</summary>
-                <p className={q.ta ? "ta" : ""}>{t.stem}</p>
-                <ul>{(["A", "B", "C", "D"] as const).map((o) => <li key={o}><b>({o})</b> {t.options[o]}</li>)}</ul>
-              </details>
-            );
-          })}
-        </section>
-      ))}
     </main>
   );
 }

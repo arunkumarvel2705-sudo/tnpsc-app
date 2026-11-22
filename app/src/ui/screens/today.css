@@ -1,0 +1,41 @@
+/* Today tab. Colours come from styles.css variables so light and dark both work. */
+.today p { margin: 0 0 10px; }
+.today .today-tight { margin-bottom: 0; }
+.today .today-eyebrow { margin: 0 0 2px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 12px; }
+
+.today-resume { border-color: var(--accent); }
+.today-resume .bar { margin: 4px 0 12px; }
+
+.today-ring { display: flex; align-items: center; gap: 18px; }
+.today-ring h3 { margin-bottom: 2px; }
+.today-ring .today-ring-count { margin: 0 0 2px; font-weight: 600; }
+.ring { position: relative; width: 96px; height: 96px; flex: 0 0 auto; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 10; }
+.ring .track { stroke: var(--line); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.4s ease; }
+.ring-num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; }
+
+.today-reason { line-height: 1.45; }
+.today-tone { font-weight: 600; }
+.today-tone.bad { color: var(--bad); }
+.today-tone.miss { color: var(--miss); }
+.today-tone.good { color: var(--good); }
+.today-tone.plain { color: var(--ink); }
+.today-start { margin-top: 12px; }
+.today-why { display: block; margin-top: 6px; }
+.today-why-body { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 10px; }
+.today-why-body ul { list-style: none; margin: 0 0 10px; padding: 0; }
+.today-why-body li { padding: 6px 0; }
+.today-why-body li + li { border-top: 1px dashed var(--line); }
+.today-why-row { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.today-why-title { font-weight: 600; }
+
+.today-week h3 { margin-bottom: 10px; }
+.today-dots { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, 1fr); }
+.today-dots li { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.today-dots .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); background: transparent; }
+.today-dots .dot.on { background: var(--accent); border-color: var(--accent); }
+.today-dots .dot.now { outline: 2px solid var(--accent); outline-offset: 2px; }
+.today-dots .dot.later { border-style: dashed; }
+.today-dots .today-now { color: var(--accent); font-weight: 700; }
