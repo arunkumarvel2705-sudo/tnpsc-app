@@ -12,7 +12,7 @@ const bundle: ContentBundle = {
   version: "t", builtAt: "t", papers: [], questions: [],
   units: [{ id: "ccse4.ta.u4", nameEn: "Technical terms", nameTa: null, questions: 10 }],
 };
-const topic: TopicInfo = { topicId: "ccse4.ta.u4.k_terms", unitId: "ccse4.ta.u4", nameEn: "ccse4.ta.u4.k_terms", nameTa: null, papersAsked: 1, papersTotal: 1, exams: ["CCSE-IV"] };
+const topic: TopicInfo = { topicId: "ccse4.ta.u4.k_terms", unitId: "ccse4.ta.u4", nameEn: "ccse4.ta.u4.k_terms", nameTa: null, papersAsked: 1, papersTotal: 1, exams: ["CCSE-IV"], unitWeight: 10 };
 
 const pick = (over: Partial<FocusPick> = {}): FocusPick => ({
   topicId: topic.topicId, unitId: topic.unitId, box: "insufficient", weakness: 0.6, frequency: 1, relevance: 1, score: 0.6,

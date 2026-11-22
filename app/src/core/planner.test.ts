@@ -28,8 +28,8 @@ const ans = (questionId: string, chosen: AnswerGiven["chosen"], confidence: Answ
 const right = (qid: string, at: string, confidence: AnswerGiven["confidence"] = "sure") => ans(qid, "A", confidence, at);
 const wrong = (qid: string, at: string, confidence: AnswerGiven["confidence"] = "sure") => ans(qid, "B", confidence, at);
 
-const topic = (topicId: string, unitId: string, papersAsked: number, papersTotal: number, exams = ["CCSE-IV"]): TopicInfo => ({
-  topicId, unitId, nameEn: topicId, nameTa: null, papersAsked, papersTotal, exams,
+const topic = (topicId: string, unitId: string, papersAsked: number, papersTotal: number, exams = ["CCSE-IV"], unitWeight = 10): TopicInfo => ({
+  topicId, unitId, nameEn: topicId, nameTa: null, papersAsked, papersTotal, exams, unitWeight,
 });
 
 const EVIDENCE: Record<Box, string> = {

@@ -10,7 +10,8 @@
 //   score     = weakness * frequency * relevance
 // A topic is skipped when its mode has nothing to serve (diagnostic: no never-answered learnable question in
 // the unit; practice: no focus-pool question), so the plan never locks onto an exhausted topic.
-// Highest score wins; ties -> more open mistakes in the topic, then topicId ascending. Nothing eligible ->
+// Highest score wins; ties -> more open mistakes in the topic, then the unit worth more marks (unitWeight),
+// then topicId ascending. (With few papers loaded most scores tie, so exam weight decides.) Nothing eligible ->
 // focus null, mode practice, empty practice set.
 // why names every factor in one line, e.g.
 //   "Weak: 5 of 10 correct (50%) · asked in 1 of 1 papers · on your CCSE-IV path"
@@ -218,7 +219,7 @@ function pickFocus(
     openByTopic.set(m.topicId, (openByTopic.get(m.topicId) ?? 0) + 1);
   }
 
-  let best: { pick: FocusPick; open: number } | null = null;
+  let best: { pick: FocusPick; open: number; weight: number } | null = null;
   for (const t of input.topics) {
     if (!topicsWithQuestions.has(t.topicId)) continue;
     const skill = skills.get(t.unitId);
@@ -230,17 +231,19 @@ function pickFocus(
     if (!(score > 0)) continue;
     if (!hasWork(t.topicId, t.unitId, box)) continue;
     const open = openByTopic.get(t.topicId) ?? 0;
-    if (
-      best &&
-      (score < best.pick.score ||
-        (score === best.pick.score && (open < best.open || (open === best.open && t.topicId >= best.pick.topicId))))
-    ) {
-      continue;
+    if (best) {
+      const b = best;
+      const worse =
+        score !== b.pick.score ? score < b.pick.score
+        : open !== b.open ? open < b.open
+        : t.unitWeight !== b.weight ? t.unitWeight < b.weight
+        : t.topicId >= b.pick.topicId;
+      if (worse) continue;
     }
     const label = skill ? `${BOX_LABEL[box]}: ${skill.evidence}` : BOX_LABEL[box];
     const path = relevance ? `on your ${pathExam} path` : `not on your ${pathExam} path`;
     const why = `${label} · asked in ${t.papersAsked} of ${t.papersTotal} papers · ${path}`;
-    best = { pick: { topicId: t.topicId, unitId: t.unitId, box, weakness, frequency, relevance, score, why }, open };
+    best = { pick: { topicId: t.topicId, unitId: t.unitId, box, weakness, frequency, relevance, score, why }, open, weight: t.unitWeight };
   }
   return best?.pick ?? null;
 }

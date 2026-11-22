@@ -120,3 +120,14 @@ describe("findings 7 and 8: no-evidence questions and single-question concepts",
     expect(mistakeStates(log, qs).get("solo-c")!).toMatchObject({ misconception: true, transferPossible: false, stage: "fixed" });
   });
 });
+
+describe("tie-break by exam weight (found in the phone run with one paper loaded)", () => {
+  it("when every topic scores the same, the unit worth more marks goes first", () => {
+    const apt = Array.from({ length: 15 }, (_, i) => mkQ(`a${i}`, "ccse4.apt.u1", "ccse4.apt.u1.t1"));
+    const gram = Array.from({ length: 25 }, (_, i) => mkQ(`g${i}`, "ccse4.ta.u1", "ccse4.ta.u1.e_split"));
+    const b = mkBundle([...apt, ...gram], ["ccse4.apt.u1", "ccse4.ta.u1"]);
+    b.units = [{ id: "ccse4.apt.u1", nameEn: "Aptitude", nameTa: null, questions: 15 }, { id: "ccse4.ta.u1", nameEn: "Grammar", nameTa: null, questions: 25 }];
+    const s = computeState([], b, "2026-11-22", "CCSE-IV");
+    expect(s.plan.focus!.unitId).toBe("ccse4.ta.u1"); // alphabetical order alone would pick Aptitude
+  });
+});

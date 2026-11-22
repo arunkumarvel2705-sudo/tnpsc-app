@@ -19,6 +19,7 @@ export interface TopicInfo {
   papersAsked: number; // of the counted papers, how many asked this topic
   papersTotal: number; // counted papers: the path's most recent PATH_PAPER_WINDOW (all papers if no path)
   exams: string[]; // exam codes whose papers asked it, sorted, e.g. ["CCSE-IV"]
+  unitWeight: number; // the unit's official question count in the exam (bundle.units), 0 if unknown
 }
 
 /** Spec: frequency is the share of the last 10 years' papers that asked the topic. */
@@ -41,6 +42,7 @@ export function topicIndex(bundle: ContentBundle, pathExam?: string): TopicInfo[
       .map(([k]) => k),
   );
   const names = new Map((bundle.topics ?? []).map((t) => [t.id, t]));
+  const unitWeights = new Map(bundle.units.map((u) => [u.id, u.questions]));
   const byTopic = new Map<string, { unitId: string; papers: Set<string>; exams: Set<string> }>();
   for (const q of bundle.questions) {
     if (!q.topicId || !q.unitId) continue;
@@ -58,6 +60,7 @@ export function topicIndex(bundle: ContentBundle, pathExam?: string): TopicInfo[
       papersAsked: t.papers.size,
       papersTotal: counted.size,
       exams: [...t.exams].sort(),
+      unitWeight: unitWeights.get(t.unitId) ?? 0,
     }))
     .sort((a, b) => (a.topicId < b.topicId ? -1 : 1));
 }

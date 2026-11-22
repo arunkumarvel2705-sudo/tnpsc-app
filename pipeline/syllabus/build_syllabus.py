@@ -27,7 +27,9 @@ def english_units() -> dict[str, str]:
     txt = txt.split("Part C:")[0]
     txt = re.sub(r"Page \d of \d", " ", txt)
     parts = re.split(r"(Unit [IVX]+: [^\n]*?\(\d+ Questions\))", txt.replace("\n(20 Questions)", " (20 Questions)"))
-    return {parts[i].strip(): " ".join(parts[i + 1].split()) for i in range(1, len(parts) - 1, 2)}
+    # A unit body stops at the next part heading ("Part B: Aptitude ..."), which otherwise runs on into
+    # the last General Studies topic's name.
+    return {parts[i].strip(): re.split(r"\s*Part [B-Z]:", " ".join(parts[i + 1].split()))[0] for i in range(1, len(parts) - 1, 2)}
 
 
 add("ccse4", None, "exam", "Combined Civil Services Examination IV (Group 4)", "ஒருங்கிணைந்த குடிமைப் பணிகள் தேர்வு IV (தொகுதி IV)",
