@@ -87,8 +87,11 @@ def merge(content: Path, path_id: str, version: str) -> None:
     topics = [{"id": n["id"], "unitId": n["parentId"], "nameEn": n["nameEn"], "nameTa": n.get("nameTa")}
               for n in syllabus["nodes"] if n["level"] == "topic"]
     bundle = {"version": version, "builtAt": version.split(".")[0], "papers": [p["paper"] for p in parts],
-              "units": units,  # syllabus order, as the official document lists them "questions": questions,
+              "units": units, "questions": questions,  # units in syllabus order, as the official document lists them
               "topics": sorted(topics, key=lambda t: t["id"])}
+    expected = sum(len(p["questions"]) for p in parts)
+    if len(bundle["questions"]) != expected or [p["id"] for p in bundle["papers"]] != [p["paper"]["id"] for p in parts]:
+        sys.exit(f"Bundle not written: {len(bundle['questions'])} questions assembled, {expected} expected")
     write(content / "gold/bundles" / f"{path_id}.json", bundle, pretty=False)
     print(f"{path_id}: {len(parts)} papers ({', '.join(p['paper']['id'] for p in parts)}), "
           f"{len(questions)} questions, version {version} -> gold/bundles/{path_id}.json")
