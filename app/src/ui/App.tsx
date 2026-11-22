@@ -1,12 +1,16 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { computeState } from "../core/engine";
+import { MOCK_SECONDS, mockHistory, paperQuestionIds } from "../core/mock";
 import { buildLog, validateEvent } from "../core/events";
 import { localDay } from "../core/time";
 import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question } from "../core/types";
 import { AuthError, fetchBundle, pdfLink, pushEvents } from "../sync/github";
 import { store } from "../sync/store";
+import { newDraft, remainingMs, type MockDraft } from "./mock";
 import { QuestionPlayer } from "./QuestionPlayer";
+import { MockReport } from "./screens/MockReport";
+import { MockRunner } from "./screens/MockRunner";
 import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
@@ -15,7 +19,12 @@ import { newSession, type Session, type SessionKind } from "./session";
 
 const PATH_EXAM = "CCSE-IV"; // v1 path: Group 4
 type Tab = "today" | "practice" | "progress";
-type View = { name: "tabs" } | { name: "session" } | { name: "close"; session: Session };
+type View =
+  | { name: "tabs" }
+  | { name: "session" }
+  | { name: "close"; session: Session }
+  | { name: "mock" }
+  | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number };
 
 /** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
 function readLog(): LearningEvent[] {
@@ -29,6 +38,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("today");
   const [view, setView] = useState<View>({ name: "tabs" });
   const [active, setActive] = useState<Session | null>(store.session());
+  const [mock, setMock] = useState<MockDraft | null>(store.mock());
   const [sync, setSync] = useState<{ state: "idle" | "busy" | "error"; msg?: string }>({ state: "idle" });
   const [pending, setPending] = useState(store.pending().length);
   const today = localDay(new Date().toISOString());
@@ -72,6 +82,34 @@ export default function App() {
     void syncNow();
   }, [syncNow]);
 
+  /** Turn a finished mock into answer events (mode "mock"), all stamped at submission time. */
+  const submitMock = useCallback((d: MockDraft) => {
+    const end = Math.min(Date.now(), Date.parse(d.startedAt) + MOCK_SECONDS * 1000);
+    const at = new Date(end).toISOString();
+    const version = store.bundle()?.version ?? "unknown";
+    for (const qid of d.questionIds) {
+      const a = d.answers[qid];
+      if (!a) continue;
+      store.addEvent({
+        type: "answer", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at, schemaVersion: 1,
+        sessionId: d.id, questionId: qid, chosen: a.chosen, confidence: a.chosen === "E" ? "none" : a.confidence,
+        timeMs: a.timeMs, mode: "mock", contentVersion: version,
+      });
+    }
+    store.setMock(null);
+    setMock(null);
+    setLog(readLog());
+    setPending(store.pending().length);
+    setView({ name: "mockReport", sessionId: d.id, paperId: d.paperId, timeUsedMs: end - Date.parse(d.startedAt) });
+    void syncNow();
+  }, [syncNow]);
+
+  // A mock whose 3 hours ran out while the app was closed is submitted on the next open (AT-U6).
+  useEffect(() => {
+    const d = store.mock();
+    if (d && remainingMs(d, Date.now()) === 0) submitMock(d);
+  }, [submitMock]);
+
   const state = useMemo(() => (bundle ? computeState(log, bundle, today, PATH_EXAM) : null), [log, bundle, today]);
   const answers = useMemo(() => log.filter((e): e is AnswerGiven => e.type === "answer"), [log]);
 
@@ -105,6 +143,13 @@ export default function App() {
   if (view.name === "session" && active)
     return <QuestionPlayer bundle={bundle} session={active} deviceId={store.deviceId()} onAnswer={record} onAdvance={advance}
       onExit={() => setView({ name: "tabs" })} onOpenScan={openScan} />;
+  if (view.name === "mock" && mock)
+    return <MockRunner bundle={bundle} draft={mock} nowMs={() => Date.now()}
+      onChange={(d) => { store.setMock(d); setMock(d); }}
+      onSubmit={(d) => submitMock(d)} onPause={() => setView({ name: "tabs" })} />;
+  if (view.name === "mockReport")
+    return <MockReport bundle={bundle} log={log} sessionId={view.sessionId} paperId={view.paperId} timeUsedMs={view.timeUsedMs}
+      onPractise={(title, ids) => start("quick", title, ids)} onDone={() => setView({ name: "tabs" })} />;
   if (view.name === "close")
     return <SessionClose session={view.session} bundle={bundle} log={log} onTag={tag} onDone={() => { setView({ name: "tabs" }); setTab("today"); }} />;
 
@@ -118,7 +163,19 @@ export default function App() {
       </header>
       {tab === "today" && <Today state={state} bundle={bundle} log={log} today={today} resumable={active}
         onStart={start} onResume={() => setView({ name: "session" })} />}
-      {tab === "practice" && <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />}
+      {tab === "practice" && (
+        <>
+          <MockCard bundle={bundle} log={log} draft={mock}
+            onStart={() => {
+              const paperId = bundle.papers[0]?.id ?? "paper";
+              const d = newDraft(crypto.randomUUID(), paperId, paperQuestionIds(bundle, paperId), new Date().toISOString());
+              store.setMock(d); setMock(d); setView({ name: "mock" });
+            }}
+            onContinue={() => setView({ name: "mock" })}
+            onOpen={(sessionId) => setView({ name: "mockReport", sessionId, paperId: bundle.papers[0]?.id ?? "paper", timeUsedMs: 0 })} />
+          <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
+        </>
+      )}
       {tab === "progress" && (
         <>
           <Progress state={state} bundle={bundle} log={log} today={today} onPractise={(title, ids) => start("quick", title, ids)} />
@@ -136,6 +193,42 @@ export default function App() {
         ))}
       </nav>
     </main>
+  );
+}
+
+function MockCard({ bundle, log, draft, onStart, onContinue, onOpen }: {
+  bundle: ContentBundle; log: LearningEvent[]; draft: MockDraft | null;
+  onStart: () => void; onContinue: () => void; onOpen: (sessionId: string) => void;
+}) {
+  const history = useMemo(() => mockHistory(log, bundle), [log, bundle]);
+  const left = draft ? remainingMs(draft, Date.now()) : 0;
+  const hhmm = (ms: number) => `${Math.floor(ms / 3600000)}h ${String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0")}m`;
+  return (
+    <article className="card">
+      <div className="card-head"><h3>Full mock</h3><span className="muted">{bundle.questions.length} questions · 3 hours</span></div>
+      {draft ? (
+        <>
+          <p className="muted small">In progress: {Object.keys(draft.answers).length} answered, {hhmm(left)} left. The clock keeps running.</p>
+          <button className="primary wide" onClick={onContinue}>Continue mock</button>
+        </>
+      ) : (
+        <>
+          <p className="muted small">Exam conditions: no answers shown until you submit. Best on a weekend with 3 free hours.</p>
+          <button className="primary wide" onClick={() => { if (confirm("Start a 3-hour mock now? The timer runs even if you close the app.")) onStart(); }}>Start mock</button>
+        </>
+      )}
+      {history.length > 0 && (
+        <ul className="mock-history">
+          {history.map((h) => (
+            <li key={h.sessionId}>
+              <button className="link" onClick={() => onOpen(h.sessionId)}>
+                {new Date(h.submittedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}: {h.marks} / {h.maxMarks}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }
 
