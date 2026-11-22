@@ -1,0 +1,104 @@
+"""Build the app's content bundle for an exam path from per-paper Gold files.
+
+Two steps, both deterministic (same inputs give byte-identical output, AT-P1):
+
+  paper <content-repo> <paper-id>
+      silver/tnpsc/<paper-id>/questions.json  (from pipeline/extract/build_silver.py)
+    + gold/tags/<paper-id>.json               (from the paper's tagging script)
+    -> gold/papers/<paper-id>.json            one paper, ready to merge
+
+  merge <content-repo> <path-id> <version>
+      every gold/papers/<path-id>_*.json + gold/syllabus/<path-id>.json
+    -> gold/bundles/<path-id>.json            what the app downloads (papers newest first)
+
+The merge refuses to write a bundle with duplicate question ids, untagged questions, or topics that are not
+in the Syllabus Graph. Runs on the private content repo; this script holds no content itself.
+Usage: python build_bundle.py paper ~/tnpsc-content ccse4_2024
+       python build_bundle.py merge ~/tnpsc-content ccse4 2026-11-22.4
+"""
+import json
+import sys
+from pathlib import Path
+
+SECTIONS = {"tamil": "Part A · Tamil", "gs_apt": "Part B · General Studies & Aptitude"}
+
+
+def read(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write(path: Path, data, pretty: bool) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(data, ensure_ascii=False, indent=1 if pretty else None)
+    path.write_text(text + ("\n" if pretty else ""), encoding="utf-8")
+
+
+def build_paper(content: Path, paper_id: str) -> None:
+    silver = read(content / "silver/tnpsc" / paper_id / "questions.json")
+    tags = {t["n"]: t for t in read(content / "gold/tags" / f"{paper_id}.json")}
+    questions = []
+    for s in silver["questions"]:
+        n = s["n"]
+        if n not in tags:
+            sys.exit(f"{paper_id} Q{n}: no tag")
+        q = {"id": f"{paper_id}_q{n:03d}", "paperId": paper_id, "n": n, "section": s["section"]}
+        for lang in ("ta", "en"):
+            if lang in s:
+                q[lang] = s[lang]
+        q.update({"accepted": s["accepted"], "keyStatus": s["keyStatus"], "status": "active"})
+        if "format" in s:
+            q["format"] = s["format"]
+        q["source"] = {"exam": silver["exam"], "year": silver["year"], "paper": silver["qbCode"], "qNo": n,
+                       "pdfRef": silver["qpRef"], "page": s["page"]}
+        q["topicId"], q["unitId"] = tags[n]["topicId"], tags[n]["unitId"]
+        questions.append(q)
+    counts = {sec: sum(q["section"] == sec for q in questions) for sec in SECTIONS}
+    paper = {"id": paper_id, "title": silver["title"], "date": silver["date"],
+             "sections": [{"id": sec, "title": SECTIONS[sec], "questions": c} for sec, c in counts.items() if c]}
+    write(content / "gold/papers" / f"{paper_id}.json", {"paper": paper, "questions": questions}, pretty=True)
+    print(f"{paper_id}: {len(questions)} questions -> gold/papers/{paper_id}.json")
+
+
+def merge(content: Path, path_id: str, version: str) -> None:
+    syllabus = read(content / "gold/syllabus" / f"{path_id}.json")
+    nodes = {n["id"]: n for n in syllabus["nodes"]}
+    files = sorted((content / "gold/papers").glob(f"{path_id}_*.json"))
+    if not files:
+        sys.exit(f"no gold/papers/{path_id}_*.json")
+    parts = sorted((read(f) for f in files), key=lambda p: p["paper"]["date"], reverse=True)  # newest first
+
+    questions, seen, problems = [], set(), []
+    for part in parts:
+        pid = part["paper"]["id"]
+        for q in part["questions"]:
+            q = {**q, "paperId": pid}
+            if q["id"] in seen:
+                problems.append(f"duplicate id {q['id']}")
+            seen.add(q["id"])
+            topic = nodes.get(q.get("topicId", ""))
+            if topic is None or topic["level"] != "topic" or topic["parentId"] != q.get("unitId"):
+                problems.append(f"{q['id']}: topic {q.get('topicId')} / unit {q.get('unitId')} not in the syllabus graph")
+            questions.append(q)
+    if problems:
+        sys.exit("Bundle not written:\n  " + "\n  ".join(problems))
+
+    units = [{"id": n["id"], "nameEn": n["nameEn"], "nameTa": n.get("nameTa"), "questions": n.get("questions")}
+             for n in syllabus["nodes"] if n["level"] == "unit"]
+    topics = [{"id": n["id"], "unitId": n["parentId"], "nameEn": n["nameEn"], "nameTa": n.get("nameTa")}
+              for n in syllabus["nodes"] if n["level"] == "topic"]
+    bundle = {"version": version, "builtAt": version.split(".")[0], "papers": [p["paper"] for p in parts],
+              "units": units,  # syllabus order, as the official document lists them "questions": questions,
+              "topics": sorted(topics, key=lambda t: t["id"])}
+    write(content / "gold/bundles" / f"{path_id}.json", bundle, pretty=False)
+    print(f"{path_id}: {len(parts)} papers ({', '.join(p['paper']['id'] for p in parts)}), "
+          f"{len(questions)} questions, version {version} -> gold/bundles/{path_id}.json")
+
+
+if __name__ == "__main__":
+    cmd, args = sys.argv[1], sys.argv[2:]
+    if cmd == "paper":
+        build_paper(Path(args[0]), args[1])
+    elif cmd == "merge":
+        merge(Path(args[0]), args[1], args[2])
+    else:
+        sys.exit(__doc__)
