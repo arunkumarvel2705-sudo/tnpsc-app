@@ -36,7 +36,11 @@ export default function App() {
   const [bundle, setBundle] = useState<ContentBundle | null>(store.bundle());
   const [log, setLog] = useState<LearningEvent[]>(readLog);
   const [tab, setTab] = useState<Tab>("today");
-  const [view, setView] = useState<View>({ name: "tabs" });
+  // A mock still running when the app opens (killed by the phone, Back pressed) goes straight back to it.
+  const [view, setView] = useState<View>(() => {
+    const d = store.mock();
+    return d && remainingMs(d, Date.now()) > 0 ? { name: "mock" } : { name: "tabs" };
+  });
   const [active, setActive] = useState<Session | null>(store.session());
   const [mock, setMock] = useState<MockDraft | null>(store.mock());
   const [sync, setSync] = useState<{ state: "idle" | "busy" | "error"; msg?: string }>({ state: "idle" });
@@ -82,19 +86,30 @@ export default function App() {
     void syncNow();
   }, [syncNow]);
 
-  /** Turn a finished mock into answer events (mode "mock"), all stamped at submission time. */
+  /**
+   * Turn a finished mock into answer events (mode "mock"), all stamped at submission time, in ONE write.
+   * Event ids are "<mock id>:<question id>", so submitting the same draft again (after a crash mid-write,
+   * or the shell and the runner both noticing time is up) never records anything twice. The draft is only
+   * cleared once the answers are safely stored.
+   */
   const submitMock = useCallback((d: MockDraft) => {
+    if (store.mock()?.id !== d.id) return; // already submitted (the draft is cleared only after a safe write)
     const end = Math.min(Date.now(), Date.parse(d.startedAt) + MOCK_SECONDS * 1000);
     const at = new Date(end).toISOString();
     const version = store.bundle()?.version ?? "unknown";
+    const events: LearningEvent[] = [];
     for (const qid of d.questionIds) {
       const a = d.answers[qid];
       if (!a) continue;
-      store.addEvent({
-        type: "answer", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at, schemaVersion: 1,
+      events.push({
+        type: "answer", eventId: `${d.id}:${qid}`, deviceId: store.deviceId(), at, schemaVersion: 1,
         sessionId: d.id, questionId: qid, chosen: a.chosen, confidence: a.chosen === "E" ? "none" : a.confidence,
         timeMs: a.timeMs, mode: "mock", contentVersion: version,
       });
+    }
+    if (!store.addEvents(events)) {
+      alert("Your phone's storage for this app is full, so the mock could not be saved yet. Your answers are kept; free some space and open the app again.");
+      return;
     }
     store.setMock(null);
     setMock(null);
@@ -104,11 +119,19 @@ export default function App() {
     void syncNow();
   }, [syncNow]);
 
-  // A mock whose 3 hours ran out while the app was closed is submitted on the next open (AT-U6).
+  // Auto-submit at zero when the mock screen is not open (AT-U6): on app open, every 15 s while the app
+  // is open, and whenever it comes back to the foreground. On the mock screen the runner does it.
   useEffect(() => {
-    const d = store.mock();
-    if (d && remainingMs(d, Date.now()) === 0) submitMock(d);
-  }, [submitMock]);
+    const check = () => {
+      const d = store.mock();
+      if (d && view.name !== "mock" && remainingMs(d, Date.now()) === 0) submitMock(d);
+    };
+    check();
+    const timer = window.setInterval(check, 15000);
+    const onVisible = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [submitMock, view.name]);
 
   const state = useMemo(() => (bundle ? computeState(log, bundle, today, PATH_EXAM) : null), [log, bundle, today]);
   const answers = useMemo(() => log.filter((e): e is AnswerGiven => e.type === "answer"), [log]);
@@ -173,7 +196,11 @@ export default function App() {
             }}
             onContinue={() => setView({ name: "mock" })}
             onOpen={(sessionId) => setView({ name: "mockReport", sessionId, paperId: bundle.papers[0]?.id ?? "paper", timeUsedMs: 0 })} />
-          <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
+          {mock ? (
+            <p className="muted small">Paper practice is hidden while a mock is running, so the mock stays under exam conditions.</p>
+          ) : (
+            <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
+          )}
         </>
       )}
       {tab === "progress" && (

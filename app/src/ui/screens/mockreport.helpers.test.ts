@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mockReport, type MockReport } from "../../core/mock";
 import type { AnswerGiven, ContentBundle, Option, Question } from "../../core/types";
-import { confidenceLine, hmm, marksText, unitRows, wrongIds } from "./mockreport.helpers";
+import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
 
 function q(id: string, n: number, unitId: string, extra: Partial<Question> = {}): Question {
   return {
@@ -58,20 +58,23 @@ const report = (over: Partial<MockReport>): MockReport => ({
 });
 
 describe("unitRows", () => {
-  it("puts the weakest first and drops units with nothing scorable", () => {
+  it("ranks attempted units by share right of what was answered; unattempted units are listed apart (review fix)", () => {
     const r = report({
       byUnit: [
-        { unitId: "a", name: "A", total: 4, correct: 3 },
-        { unitId: "b", name: "B", total: 2, correct: 1 },
-        { unitId: "c", name: "C", total: 4, correct: 2 },
-        { unitId: "d", name: "D", total: 0, correct: 0 },
-        { unitId: "e", name: "E", total: 3, correct: 0 },
+        { unitId: "a", name: "A", total: 4, answered: 4, correct: 3 },
+        { unitId: "b", name: "B", total: 2, answered: 2, correct: 1 },
+        { unitId: "c", name: "C", total: 4, answered: 4, correct: 2 },
+        { unitId: "d", name: "D", total: 0, answered: 0, correct: 0 },
+        { unitId: "e", name: "E", total: 3, answered: 3, correct: 0 },
+        { unitId: "f", name: "F", total: 22, answered: 0, correct: 0 },
+        { unitId: "g", name: "G", total: 10, answered: 2, correct: 2 },
       ],
     });
     const rows = unitRows(r);
-    expect(rows.map((u) => u.unitId)).toEqual(["e", "c", "b", "a"]);
-    expect(rows[0]).toEqual({ unitId: "e", name: "E", total: 3, correct: 0, pct: 0, weak: true });
+    expect(rows.map((u) => u.unitId)).toEqual(["e", "c", "b", "a", "g"]); // g: 2 of 2 answered right, not 2/10
+    expect(rows[0]).toEqual({ unitId: "e", name: "E", total: 3, answered: 3, correct: 0, pct: 0, weak: true });
     expect(rows.find((u) => u.unitId === "c")?.weak).toBe(false); // exactly half is not weak
+    expect(unattemptedUnits(r)).toEqual([{ unitId: "f", name: "F", total: 22 }]);
   });
 });
 
@@ -81,7 +84,7 @@ describe("confidenceLine", () => {
   });
   it("names wrong-while-sure as misconceptions", () => {
     expect(confidenceLine(report({ confidence: conf(12, 3) }))).toBe(
-      "12 wrong while sure: these are misconceptions and now sit in your mistake list.",
+      "12 wrong while sure: these are misconceptions, added to your mistake list when you submitted.",
     );
     expect(confidenceLine(report({ confidence: conf(1, 0) }))).toMatch(/^1 wrong while sure: that is a misconception/);
   });

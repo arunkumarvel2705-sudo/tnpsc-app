@@ -24,7 +24,7 @@ describe("timer", () => {
     expect(formatClock(9 * 60_000 + 59_000)).toBe("0:09:59");
     expect(formatClock(0)).toBe("0:00:00");
     expect(formatClock(-5000)).toBe("0:00:00");
-    expect(formatClock(3 * 3600_000 - 1)).toBe("2:59:59");
+    expect(formatClock(3 * 3600_000 - 1000)).toBe("2:59:59");
   });
   it("starts at 3:00:00 and reaches 0:00:00", () => {
     const d = fresh();
@@ -140,5 +140,13 @@ describe("auto-submit", () => {
       if (remainingMs(d, now) === 0) submit(d, "timeout");
     }
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe("review fix: countdown rounds up (AT-U6)", () => {
+  it("shows 3:00:00 a few ms after the start and 0:00:01 just before zero", () => {
+    expect(formatClock(10_800_000 - 7)).toBe("3:00:00");
+    expect(formatClock(1)).toBe("0:00:01");
+    expect(formatClock(0)).toBe("0:00:00");
   });
 });

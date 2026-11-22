@@ -13,11 +13,13 @@ function get<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
-function set(key: string, value: unknown): void {
+/** Returns false when storage is full or blocked; callers that must not lose data check it. */
+function set(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    /* storage full or blocked: the session still works in memory */
+    return false; /* storage full or blocked: the session still works in memory */
   }
 }
 
@@ -39,6 +41,20 @@ export const store = {
     set(K.events, [...store.events(), e]);
     set(K.pending, [...store.pending(), e.eventId]);
   },
+  /**
+   * Many events in one write (a submitted mock is up to 200). Events whose eventId is already stored are
+   * skipped, so re-submitting the same answers never duplicates them. Returns false if storage refused
+   * the write; then nothing was added.
+   */
+  addEvents(list: LearningEvent[]): boolean {
+    const current = store.events();
+    const have = new Set(current.map((e) => e.eventId));
+    const fresh = list.filter((e) => !have.has(e.eventId));
+    if (!fresh.length) return true;
+    if (!set(K.events, [...current, ...fresh])) return false;
+    set(K.pending, [...store.pending(), ...fresh.map((e) => e.eventId)]);
+    return true;
+  },
   pending: () => get<string[]>(K.pending, []),
   markSynced(ids: Set<string>) {
     set(K.pending, store.pending().filter((id) => !ids.has(id)));
@@ -47,7 +63,6 @@ export const store = {
   setProgress(section: string, index: number) {
     set(K.progress, { ...store.progress(), [section]: index });
   },
-  /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
   /** The mock in progress, saved on every change (AT-U6: the clock keeps running while the app is closed). */
   mock: () => get<MockDraft | null>(K.mock, null),
   setMock(d: MockDraft | null) {
@@ -56,6 +71,7 @@ export const store = {
       try { localStorage.removeItem(K.mock); } catch { /* ignore */ }
     }
   },
+  /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
   session: () => get<Session | null>(K.session, null),
   setSession(s: Session | null) {
     if (s) set(K.session, s);

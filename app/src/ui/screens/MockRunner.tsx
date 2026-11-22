@@ -116,7 +116,7 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
     <main className="wrap mr">
       <header className="mr-head">
         <div className="mr-head-row">
-          <button className="link mr-pause" onClick={() => { save(settle()); onPause(); }}>← Pause</button>
+          <button className="link mr-pause" onClick={() => { save(settle()); onPause(); }}>← Leave (clock runs)</button>
           <span className={`mr-clock${low ? " low" : ""}`} role="timer" aria-label={`Time left ${formatClock(remaining)}`}>
             {formatClock(remaining)}
           </span>

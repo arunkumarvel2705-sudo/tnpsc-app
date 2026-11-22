@@ -13,13 +13,15 @@
 //   parts       : "tamil" section -> "Part A: Tamil"; gs_apt questions whose unitId starts "ccse4.apt"
 //                 -> "Part B: Aptitude"; other gs_apt -> "Part B: General Studies". Order: A, GS, Apt.
 //   byUnit      : every unitId present among the paper's questions, in bundle.units order, unknown last.
-//   confidence  : counts of correct / wrong for each of sure, guess, none (effectiveConfidence; E = none).
+//   confidence  : counts of correct / wrong for each of sure, guess, none (effectiveConfidence; E = none),
+//                 using scoring.learningOutcome: an ALL-keyed question earns marks but is no evidence of
+//                 knowing, so it is left out of this table and of misconceptionIds (matches the engine).
 //   misconceptionIds : wrong while sure, by question id.
 //   timeUsedMs  : passed in by the caller (submission time minus start, capped at MOCK_SECONDS).
 // History: one entry per mock session in the log, newest first, with marks recomputed under the
 // current key (so a key revision updates old mocks too).
 import { answersOf } from "./events";
-import { effectiveConfidence, latestAnswers, outcome } from "./scoring";
+import { effectiveConfidence, latestAnswers, learningOutcome, outcome } from "./scoring";
 import type { AnswerGiven, ContentBundle, LearningEvent, Question } from "./types";
 
 export const MOCK_SECONDS = 3 * 60 * 60;
@@ -48,7 +50,7 @@ export interface MockReport {
   marks: number;
   maxMarks: number;
   parts: PartScore[];
-  byUnit: { unitId: string; name: string; total: number; correct: number }[];
+  byUnit: { unitId: string; name: string; total: number; answered: number; correct: number }[];
   confidence: Record<"sure" | "guess" | "none", { correct: number; wrong: number }>;
   misconceptionIds: string[];
   timeUsedMs: number;
@@ -95,7 +97,7 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
   for (const e of mine) if (e.at > submittedAt) submittedAt = e.at;
 
   const parts = new Map<PartScore["id"], PartScore>();
-  const units = new Map<string, { total: number; correct: number }>();
+  const units = new Map<string, { total: number; answered: number; correct: number }>();
   const confidence: MockReport["confidence"] = {
     sure: { correct: 0, wrong: 0 },
     guess: { correct: 0, wrong: 0 },
@@ -113,7 +115,7 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
     const pid = partOf(q);
     const part = parts.get(pid) ?? { id: pid, label: PART_LABELS[pid], total: 0, answered: 0, correct: 0, marks: 0, maxMarks: 0 };
     parts.set(pid, part);
-    const unit = q.unitId ? units.get(q.unitId) ?? { total: 0, correct: 0 } : null;
+    const unit = q.unitId ? units.get(q.unitId) ?? { total: 0, answered: 0, correct: 0 } : null;
     if (q.unitId && unit) units.set(q.unitId, unit);
 
     if (q.status === "deleted") {
@@ -124,15 +126,19 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
     if (unit) unit.total++;
     if (!a) continue;
     part.answered++;
+    if (unit) unit.answered++;
     const o = outcome(q, a.chosen);
     const conf = effectiveConfidence(a.chosen, a.confidence);
     if (o === "correct") {
       correct++;
       part.correct++;
       if (unit) unit.correct++;
-      confidence[conf].correct++;
     } else {
       wrong++;
+    }
+    const evidence = learningOutcome(q, a.chosen);
+    if (evidence === "correct") confidence[conf].correct++;
+    else if (evidence === "wrong") {
       confidence[conf].wrong++;
       if (conf === "sure") misconceptionIds.push(q.id);
     }
@@ -150,7 +156,7 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
       const ib = unitOrder.get(b) ?? Infinity;
       return ia !== ib ? ia - ib : a < b ? -1 : a > b ? 1 : 0;
     })
-    .map(([unitId, u]) => ({ unitId, name: unitName.get(unitId) ?? unitId, total: u.total, correct: u.correct }));
+    .map(([unitId, u]) => ({ unitId, name: unitName.get(unitId) ?? unitId, total: u.total, answered: u.answered, correct: u.correct }));
 
   const scorable = paper.length - unscored;
   return {

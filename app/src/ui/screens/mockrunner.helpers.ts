@@ -7,8 +7,9 @@ import type { MockDraft } from "../mock";
 export const LOW_TIME_MS = 10 * 60 * 1000;
 
 /** Countdown text h:mm:ss. Whole seconds, rounded down; never negative. */
+/** Countdown text. Rounds UP, so a fresh mock reads 3:00:00 (AT-U6) and it reaches 0:00:00 only at zero. */
 export function formatClock(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
+  const s = Math.max(0, Math.ceil(ms / 1000));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;

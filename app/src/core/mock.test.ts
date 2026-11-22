@@ -155,7 +155,7 @@ describe("mockReport", () => {
   it("lists units in bundle.units order with names, unknown units last", () => {
     const b = bundle({ a3: { unitId: "ccse4.zz.u9" } });
     const r = mockReport(mockOne(), b, "m1", "p1", 0);
-    expect(r.byUnit).toEqual([
+    expect(r.byUnit.map(({ answered: _a, ...u }) => u)).toEqual([
       { unitId: "ccse4.gs.u1", name: "Science", total: 2, correct: 1 },
       { unitId: "ccse4.gs.u2", name: "Geography", total: 1, correct: 1 },
       { unitId: "ccse4.apt.u1", name: "Aptitude", total: 2, correct: 1 },
@@ -163,6 +163,10 @@ describe("mockReport", () => {
       { unitId: "ccse4.ta.u2", name: "Vocabulary", total: 1, correct: 0 }, // t4 deleted
       { unitId: "ccse4.zz.u9", name: "ccse4.zz.u9", total: 1, correct: 0 },
     ]);
+    // answered counts only questions with an answer in the session (review fix: unattempted is not wrong)
+    for (const u of r.byUnit) expect(u.answered).toBeLessThanOrEqual(u.total);
+    const unanswered = mockReport([], b, "m1", "p1", 0);
+    expect(unanswered.byUnit.every((u) => u.answered === 0)).toBe(true);
   });
 
   it("fills the confidence table and lists misconceptions in paper order", () => {
@@ -171,7 +175,7 @@ describe("mockReport", () => {
     expect(r.confidence).toEqual({
       sure: { correct: 1, wrong: 2 }, // t1 | t2, a3
       guess: { correct: 1, wrong: 1 }, // g1 | a1
-      none: { correct: 2, wrong: 1 }, // g3 (E, ALL), a2 | t3 (E)
+      none: { correct: 1, wrong: 1 }, // a2 | t3 (E); g3 (E on an ALL key) earns marks but is no evidence (review fix)
     });
     expect(r.misconceptionIds).toEqual(["t2", "a3"]);
   });

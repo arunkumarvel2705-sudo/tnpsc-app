@@ -30,18 +30,27 @@ export interface UnitRow {
   unitId: string;
   name: string;
   total: number;
+  answered: number;
   correct: number;
-  pct: number; // 0..100
-  weak: boolean; // under half right
+  pct: number; // 0..100 of ANSWERED questions
+  weak: boolean; // under half of answered right
 }
 
-/** Units with scorable questions, weakest first (lowest share right, then more questions, then report order). */
+/**
+ * Attempted units, weakest first by share right OF ANSWERED questions (then more answered, then report
+ * order). Not attempting a question is not the same as getting it wrong (review finding 3).
+ */
 export function unitRows(r: MockReport): UnitRow[] {
   return r.byUnit
-    .map((u, i) => ({ ...u, i, pct: u.total ? Math.round((u.correct / u.total) * 100) : 0 }))
-    .filter((u) => u.total > 0)
-    .sort((a, b) => a.correct / a.total - b.correct / b.total || b.total - a.total || a.i - b.i)
-    .map(({ i: _i, ...u }) => ({ ...u, weak: u.correct * 2 < u.total }));
+    .map((u, i) => ({ ...u, i, pct: u.answered ? Math.round((u.correct / u.answered) * 100) : 0 }))
+    .filter((u) => u.answered > 0)
+    .sort((a, b) => a.correct / a.answered - b.correct / b.answered || b.answered - a.answered || a.i - b.i)
+    .map(({ i: _i, ...u }) => ({ ...u, weak: u.correct * 2 < u.answered }));
+}
+
+/** Units with scorable questions that were not attempted at all, in report order. */
+export function unattemptedUnits(r: MockReport): { unitId: string; name: string; total: number }[] {
+  return r.byUnit.filter((u) => u.total > 0 && u.answered === 0).map(({ unitId, name, total }) => ({ unitId, name, total }));
 }
 
 /** One plain line reading the confidence table. */
@@ -50,8 +59,8 @@ export function confidenceLine(r: MockReport): string {
   const sureWrong = c.sure.wrong;
   if (sureWrong > 0) {
     return sureWrong === 1
-      ? "1 wrong while sure: that is a misconception and now sits in your mistake list."
-      : `${sureWrong} wrong while sure: these are misconceptions and now sit in your mistake list.`;
+      ? "1 wrong while sure: that is a misconception, added to your mistake list when you submitted."
+      : `${sureWrong} wrong while sure: these are misconceptions, added to your mistake list when you submitted.`;
   }
   const scored = c.sure.correct + c.guess.correct + c.guess.wrong + c.none.correct + c.none.wrong;
   if (scored === 0) return "No answers to read yet.";

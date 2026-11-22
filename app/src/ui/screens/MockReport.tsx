@@ -4,7 +4,7 @@
 import { useMemo } from "react";
 import { mockReport } from "../../core/mock";
 import type { MockReportProps } from "./contracts";
-import { confidenceLine, hmm, marksText, unitRows, wrongIds } from "./mockreport.helpers";
+import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
 import "./mockreport.css";
 
 const CONF_COLS = [
@@ -17,6 +17,7 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
   const r = useMemo(() => mockReport(log, bundle, sessionId, paperId, timeUsedMs), [log, bundle, sessionId, paperId, timeUsedMs]);
   const wrong = useMemo(() => wrongIds(log, bundle, sessionId, paperId), [log, bundle, sessionId, paperId]);
   const units = useMemo(() => unitRows(r), [r]);
+  const skipped = useMemo(() => unattemptedUnits(r), [r]);
   const when = r.submittedAt
     ? new Date(r.submittedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
     : null;
@@ -29,18 +30,18 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
         {when && <span className="muted small">{when}</span>}
       </header>
 
-      <article className="card mr-head">
-        <p className="mr-marks">
+      <article className="card mrep-head">
+        <p className="mrep-marks">
           <b>{marksText(r.marks)}</b> <span className="muted">/ {marksText(r.maxMarks)}</span>
         </p>
-        <p className="mr-sub">
+        <p className="mrep-sub">
           {r.answered} answered · {r.unanswered} unanswered
         </p>
-        <p className="muted small mr-sub">
+        <p className="muted small mrep-sub">
           {r.correct} right · {r.wrong} wrong · no marks taken off for wrong answers
           {r.unscored > 0 && <> · {r.unscored} deleted by TNPSC, not counted</>}
         </p>
-        {r.timeUsedMs > 0 && <p className="muted small mr-sub">Time used {hmm(r.timeUsedMs)} of 3:00</p>}
+        {r.timeUsedMs > 0 && <p className="muted small mrep-sub">Time used {hmm(r.timeUsedMs)} of 3:00</p>}
       </article>
 
       {r.answered === 0 ? (
@@ -49,15 +50,15 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
         <>
           <section className="card">
             <h3>By part</h3>
-            <table className="mr-parts">
+            <table className="mrep-parts">
               <thead>
-                <tr><th scope="col">Part</th><th scope="col">Right</th><th scope="col">Marks</th></tr>
+                <tr><th scope="col">Part</th><th scope="col">Right / answered</th><th scope="col">Marks</th></tr>
               </thead>
               <tbody>
                 {r.parts.map((p) => (
                   <tr key={p.id}>
                     <th scope="row">{p.label}</th>
-                    <td>{p.correct}<span className="muted">/{p.total}</span></td>
+                    <td>{p.correct}<span className="muted">/{p.answered}</span>{p.answered < p.total && <span className="muted small"> of {p.total}</span>}</td>
                     <td>{marksText(p.marks)}<span className="muted">/{marksText(p.maxMarks)}</span></td>
                   </tr>
                 ))}
@@ -67,26 +68,29 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
 
           {units.length > 0 && (
             <section className="card">
-              <div className="card-head"><h3>By unit</h3><span className="muted small">weakest first</span></div>
-              <ul className="mr-units">
+              <div className="card-head"><h3>By unit</h3><span className="muted small">weakest first, of what you answered</span></div>
+              <ul className="mrep-units">
                 {units.map((u) => (
                   <li key={u.unitId}>
-                    <div className="mr-unit-line">
-                      <span className="mr-unit-name">{u.name}</span>
-                      <span className="mr-unit-count">{u.correct}/{u.total}</span>
+                    <div className="mrep-unit-line">
+                      <span className="mrep-unit-name">{u.name}</span>
+                      <span className="mrep-unit-count">{u.correct}/{u.answered}{u.answered < u.total && <span className="muted"> ({u.total - u.answered} not attempted)</span>}</span>
                     </div>
-                    <div className="bar thin mr-bar" role="img" aria-label={`${u.name}: ${u.correct} of ${u.total} right`}>
+                    <div className="bar thin mrep-bar" role="img" aria-label={`${u.name}: ${u.correct} of ${u.answered} answered right`}>
                       <div className={u.weak ? "weak" : ""} style={{ width: `${u.pct}%` }} />
                     </div>
                   </li>
                 ))}
               </ul>
+              {skipped.length > 0 && (
+                <p className="muted small">Not attempted: {skipped.map((u) => `${u.name} (${u.total})`).join(" · ")}</p>
+              )}
             </section>
           )}
 
           <section className="card">
             <h3>How sure you were</h3>
-            <table className="mr-conf">
+            <table className="mrep-conf">
               <thead>
                 <tr><th aria-hidden="true" />{CONF_COLS.map((c) => <th key={c.key} scope="col">{c.label}</th>)}</tr>
               </thead>
@@ -103,12 +107,12 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
                 </tr>
               </tbody>
             </table>
-            <p className="small mr-reading">{confidenceLine(r)}</p>
+            <p className="small mrep-reading">{confidenceLine(r)}</p>
           </section>
         </>
       )}
 
-      <div className="mr-foot">
+      <div className="mrep-foot">
         {misconceptions > 0 && (
           <button className="primary wide" onClick={() => onPractise("Mock misconceptions", r.misconceptionIds)}>
             Practise the sure-but-wrong ones ({misconceptions})
