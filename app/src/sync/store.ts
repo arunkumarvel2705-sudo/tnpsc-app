@@ -1,4 +1,5 @@
 // Local, offline-first store (NFR-02). Everything is wrapped: storage can be unavailable or full.
+import { normalizeBundle, type RawBundle } from "../core/content";
 import type { ContentBundle, LearningEvent } from "../core/types";
 import type { MockDraft } from "../ui/mock";
 import type { Session } from "../ui/session";
@@ -34,7 +35,11 @@ export const store = {
     }
     return id;
   },
-  bundle: () => get<ContentBundle | null>(K.bundle, null),
+  /** The cached bundle may predate multi-paper content (no paperId on questions): normalised on read. */
+  bundle(): ContentBundle | null {
+    const b = get<RawBundle | null>(K.bundle, null);
+    return b ? normalizeBundle(b) : null;
+  },
   setBundle: (b: ContentBundle) => set(K.bundle, b),
   events: () => get<LearningEvent[]>(K.events, []),
   addEvent(e: LearningEvent) {

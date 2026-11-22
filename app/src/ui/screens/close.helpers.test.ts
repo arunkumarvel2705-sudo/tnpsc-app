@@ -7,7 +7,7 @@ const q = (n: number, section: Question["section"], extra: Partial<Question> = {
   en: { stem: `English stem ${n}`, options: { A: "a", B: "b", C: "c", D: "d", E: "Answer not known" } },
   ta: section === "tamil" ? { stem: `தமிழ் வினா ${n}`, options: { A: "a", B: "b", C: "c", D: "d", E: "விடை தெரியவில்லை" } } : undefined,
   accepted: ["A"], keyStatus: "final", status: "active",
-  source: { exam: "X", year: 2025, paper: "P", qNo: n, pdfRef: "p.pdf", page: 1 },
+  paperId: "P", source: { exam: "X", year: 2025, paper: "P", qNo: n, pdfRef: "p.pdf", page: 1 },
   ...extra,
 });
 

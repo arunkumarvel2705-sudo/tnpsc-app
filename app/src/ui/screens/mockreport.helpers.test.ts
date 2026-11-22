@@ -6,7 +6,7 @@ import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } 
 function q(id: string, n: number, unitId: string, extra: Partial<Question> = {}): Question {
   return {
     id, n, section: unitId.includes(".ta.") ? "tamil" : "gs_apt", unitId, accepted: ["A"], keyStatus: "final", status: "active",
-    source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 }, ...extra,
+    paperId: "p1", source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 }, ...extra,
   };
 }
 const bundle: ContentBundle = {

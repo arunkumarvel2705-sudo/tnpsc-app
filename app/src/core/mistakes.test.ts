@@ -9,7 +9,7 @@ const q = (
 ): Question => ({
   id, n: 1, section: "gs_apt", accepted, keyStatus: "final", status: opts.status ?? "active",
   conceptId: opts.conceptId, topicId: opts.topicId, unitId: opts.unitId,
-  source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
 });
 const qmap = (...qs: Question[]) => new Map(qs.map((x) => [x.id, x]));
 

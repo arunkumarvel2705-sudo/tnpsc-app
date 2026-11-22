@@ -1,10 +1,12 @@
 // GitHub as storage (spec D-14). Content: tnpsc-content (read). Events: tnpsc-data (append, one file per device per day).
+import { normalizeBundle } from "../core/content";
 import { mergeEvents } from "../core/scoring";
 import type { ContentBundle, LearningEvent } from "../core/types";
 
 export const OWNER = "arunkumarvel2705-sudo";
 const API = "https://api.github.com/repos";
-const BUNDLE_PATH = "gold/bundles/ccse4_2025.json";
+// One bundle per exam path holding all its papers (newest first); it used to be one file per paper.
+const BUNDLE_PATH = "gold/bundles/ccse4.json";
 
 function headers(token: string, accept = "application/vnd.github+json"): HeadersInit {
   return { Authorization: `Bearer ${token}`, Accept: accept, "X-GitHub-Api-Version": "2022-11-28" };
@@ -22,7 +24,7 @@ export async function fetchBundle(token: string): Promise<ContentBundle> {
   const r = await check(await fetch(`${API}/${OWNER}/tnpsc-content/contents/${BUNDLE_PATH}`,
     { cache: "no-store", headers: headers(token, "application/vnd.github.raw+json") }), "Content");
   if (r.status === 404) throw new Error("Content bundle not found in tnpsc-content");
-  return r.json();
+  return normalizeBundle(await r.json());
 }
 
 /** Fresh signed link to an LFS file (AT-S4): JSON details, then download_url. Links expire, so ask each time. */

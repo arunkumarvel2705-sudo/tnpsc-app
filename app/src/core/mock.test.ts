@@ -9,7 +9,7 @@ import type { AnswerGiven, Confidence, ContentBundle, ErrorTagged, LearningEvent
 function q(id: string, n: number, section: Question["section"], unitId: string, extra: Partial<Question> = {}): Question {
   return {
     id, n, section, unitId, topicId: `${unitId}.k_x`, accepted: ["A"], keyStatus: "final", status: "active",
-    source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 },
+    paperId: "p1", source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 },
     ...extra,
   };
 }

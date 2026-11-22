@@ -6,7 +6,7 @@ import type { AnswerGiven, Confidence, Option, Question } from "./types";
 const q = (id: string, unitId: string | undefined, extra: Partial<Question> = {}): Question => ({
   id, n: 1, section: "gs_apt", accepted: ["A"], keyStatus: "final", status: "active",
   unitId, topicId: unitId ? `${unitId}.t` : undefined, conceptId: `c-${id}`,
-  source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
   ...extra,
 });
 

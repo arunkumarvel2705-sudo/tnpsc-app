@@ -16,7 +16,7 @@ const mistake = (over: Partial<MistakeState> = {}): MistakeState => ({
 
 const question = (id: string, over: Partial<Question> = {}): Question => ({
   id, n: Number(id.replace(/\D/g, "")), section: "tamil", accepted: ["A"], keyStatus: "final", status: "active",
-  source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 }, ...over,
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 }, ...over,
 });
 
 const skill = (over: Partial<SkillState> = {}): SkillState => ({
