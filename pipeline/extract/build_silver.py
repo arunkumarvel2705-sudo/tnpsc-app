@@ -7,10 +7,13 @@ Inputs (a reading directory, kept outside both repos while a paper is being read
   key.json           final key: {"1": "A", "28": "A/B", "63": "ALL", ...}
   pages.json         question number -> page of the question-paper PDF
   paper.json         paper metadata: id, exam, year, qbCode, date, title, qpRef, keyRef, keySource
+  key_revisions.json optional: {"119": "why"} for questions where the answer marked on the question paper
+                     differs from the final key (TNPSC revised it). Each one is checked, kept as keyRevised.
 
 Checks (the script stops on any failure, so a bad reading can't reach Gold):
   - every question 1..200 is present exactly once per part and language
-  - the tick read on the question paper is one of the final key's accepted answers (ALL accepts anything)
+  - the tick read on the question paper is one of the final key's accepted answers (ALL accepts anything),
+    unless key_revisions.json lists the question; a listed question whose tick does match is also an error
   - English and Tamil readings of a Part B question carry the same tick and format
   - every question has options A-E
 
@@ -22,7 +25,8 @@ import json
 import sys
 from pathlib import Path
 
-EXTRA = ("format", "note")  # optional fields a reader may add to a question
+EXTRA = ("format", "note", "figure")  # optional fields a reader may add to a question
+# figure: the question needs a diagram from the PDF; the stem only describes it
 
 
 def load_jsonl(path: Path) -> dict[int, dict]:
@@ -56,6 +60,8 @@ def main(reading: Path, content: Path) -> None:
     b_en = load_jsonl(reading / "reads/b_en.jsonl")
     b_ta_path = reading / "reads/b_ta.jsonl"
     b_ta = load_jsonl(b_ta_path) if b_ta_path.exists() else {}
+    rev_path = reading / "key_revisions.json"
+    revisions = {int(k): v for k, v in json.loads(rev_path.read_text(encoding="utf-8")).items()} if rev_path.exists() else {}
 
     expect = {"Part A": (part_a, range(1, 101)), "Part B (en)": (b_en, range(101, 201))}
     if b_ta:
@@ -73,18 +79,23 @@ def main(reading: Path, content: Path) -> None:
         q: dict = {"n": n, "section": "tamil" if n <= 100 else "gs_apt", "page": pages[n]}
         readings = [part_a[n]] if n <= 100 else [b_en[n]] + ([b_ta[n]] if b_ta else [])
         for r in readings:
-            if accepted != "ALL" and r["tick"] not in accepted:
+            matches = accepted == "ALL" or r["tick"] in accepted
+            if not matches and n not in revisions:
                 problems.append(f"Q{n} ({r['lang']}): tick {r['tick']} not in final key {k}")
+            if matches and n in revisions:
+                problems.append(f"Q{n}: listed in key_revisions.json but the tick matches the final key")
             q[r["lang"]] = text_of(r)
         if len({r["tick"] for r in readings}) > 1 or len({r.get("format") for r in readings}) > 1:
             problems.append(f"Q{n}: English and Tamil readings disagree on tick or format")
         for field in EXTRA:
             vals = [r[field] for r in readings if field in r]
             if vals:
-                q[field] = vals[0] if field == "format" else "; ".join(vals)
+                q[field] = True if field == "figure" else vals[0] if field == "format" else "; ".join(vals)
         q["tick"] = readings[0]["tick"]
         q["accepted"] = accepted
         q["keyStatus"] = "final"
+        if n in revisions:
+            q["keyRevised"] = revisions[n]
         questions.append(q)
     if problems:
         sys.exit("Reading does not match the final key:\n  " + "\n  ".join(problems))

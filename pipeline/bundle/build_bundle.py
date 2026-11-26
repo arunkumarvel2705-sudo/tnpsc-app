@@ -46,8 +46,9 @@ def build_paper(content: Path, paper_id: str) -> None:
             if lang in s:
                 q[lang] = s[lang]
         q.update({"accepted": s["accepted"], "keyStatus": s["keyStatus"], "status": "active"})
-        if "format" in s:
-            q["format"] = s["format"]
+        for field in ("format", "figure"):  # figure: the stem describes a diagram the app can't show yet
+            if field in s:
+                q[field] = s[field]
         q["source"] = {"exam": silver["exam"], "year": silver["year"], "paper": silver["qbCode"], "qNo": n,
                        "pdfRef": silver["qpRef"], "page": s["page"]}
         q["topicId"], q["unitId"] = tags[n]["topicId"], tags[n]["unitId"]
