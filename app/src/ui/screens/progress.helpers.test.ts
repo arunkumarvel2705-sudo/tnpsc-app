@@ -116,6 +116,12 @@ describe("practiseIds", () => {
     expect(practiseIds(m, qs)).toEqual(["q1", "q2", "q4", "q5", "q6"]);
     expect(practiseIds({ ...m, transferDone: true }, qs)).toEqual(["q1", "q2"]);
   });
+  it("leaves out questions that need a figure, missed or extra, and can then be empty", () => {
+    const withFig = qs.map((x) => (x.id === "q2" || x.id === "q4" ? { ...x, figure: true as const } : x));
+    const m = mistake({ conceptId: "t", wrongQuestionIds: ["q1", "q2"], misconception: true });
+    expect(practiseIds(m, withFig)).toEqual(["q1", "q5", "q6"]);
+    expect(practiseIds(mistake({ conceptId: "t", wrongQuestionIds: ["q2"] }), withFig)).toEqual([]);
+  });
 });
 
 describe("fixedLine", () => {

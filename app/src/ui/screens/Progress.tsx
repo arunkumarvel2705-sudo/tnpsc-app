@@ -103,7 +103,8 @@ function MistakeRow({ m, bundle, questions, today, onPractise }: RowProps) {
   const name = mistakeName(m, bundle, questions);
   const st = mistakeStatus(m, today);
   const ids = practiseIds(m, bundle.questions);
-  const extra = ids.length - m.wrongQuestionIds.length;
+  const missed = new Set(m.wrongQuestionIds);
+  const extra = ids.filter((id) => !missed.has(id)).length;
   return (
     <li>
       <button className="pg-row" aria-expanded={isOpen} onClick={() => setOpen(!isOpen)}>
@@ -148,9 +149,15 @@ function MistakeRow({ m, bundle, questions, today, onPractise }: RowProps) {
             })}
           </ul>
           {extra > 0 && <p className="muted small">Plus {extra} other {extra === 1 ? "question" : "questions"} on the same topic.</p>}
-          <button className="primary wide" onClick={() => onPractise(`Retest: ${name}`, ids)}>
-            Practise now · {ids.length} {ids.length === 1 ? "question" : "questions"}
-          </button>
+          {ids.length > 0 ? (
+            <button className="primary wide" onClick={() => onPractise(`Retest: ${name}`, ids)}>
+              Practise now · {ids.length} {ids.length === 1 ? "question" : "questions"}
+            </button>
+          ) : (
+            <p className="muted small">
+              {m.wrongQuestionIds.length === 1 ? "This question needs" : "These questions need"} a diagram the app can't show yet, so there is nothing to practise here for now.
+            </p>
+          )}
         </div>
       )}
     </li>
