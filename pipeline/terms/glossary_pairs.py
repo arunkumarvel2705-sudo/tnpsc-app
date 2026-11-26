@@ -4,6 +4,8 @@ Most units of the Social Science books, and the Maths and Class 8 Science books,
 English word, often a meaning, and the Tamil word. This reads every page with a GLOSSARY heading and Tamil text,
 from the PDF text layer; for a book whose Tamil text layer is garbled (more than 5% of its glossary Tamil words
 fail tamil_text.bad_word), it reads those pages by OCR instead and marks the pairs "via": "ocr".
+An OCR pair is "confirmed" when its Tamil word also appears in the OCR text of a Tamil-medium book of the same class
+(spaces ignored): two independent reads agreeing on the spelling. build_terms.py uses text-layer and confirmed pairs.
 Reads silver/textbooks/books.json + pages, gold/textbooks/ccse4_units.json; writes silver/terms/ccse4_glossary.json.
 Usage: python glossary_pairs.py <content-repo>
 This script holds no content.
@@ -55,6 +57,21 @@ def main(content: Path) -> None:
                 out.append({"en": x["en"], "ta": x["ta"], "meaning": x["meaning"], "bookId": b["id"], "page": p,
                             "textbookUnit": unit, "via": via})
         print(f"{b['id']}: {sum(len(v) for v in got.values())} pairs from {len(pages)} pages ({via})", flush=True)
+    # confirm OCR pairs against the Tamil-medium books of the same class
+    tamil_text = {}
+    for b in books:
+        f = content / "silver/textbooks" / b["id"] / "pages.jsonl"
+        if b["medium"] == "tamil" and f.exists():
+            t = "".join(json.loads(l)["text"] for l in f.open(encoding="utf-8"))
+            tamil_text[b["class"]] = tamil_text.get(b["class"], "") + re.sub(r"\s+", "", t)
+    cls = {b["id"]: b["class"] for b in books}
+    for x in out:
+        if x["via"] == "ocr":
+            word = re.sub(r"\s+", "", re.sub(r"\(.*?\)", "", x["ta"]).split("/")[0].split(",")[0])
+            x["confirmed"] = len(word) >= 3 and word in tamil_text.get(cls[x["bookId"]], "")
+    if tamil_text:
+        n = sum(1 for x in out if x["via"] == "ocr")
+        print(f"OCR pairs confirmed by Tamil-medium text: {sum(x.get('confirmed', False) for x in out)} of {n}")
     dest = content / "silver/terms/ccse4_glossary.json"
     dest.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{len(out)} pairs -> {dest}")

@@ -10,8 +10,9 @@ This script finds, for each curated pair, every question whose aligned options a
 gold/terms/<path>.json: [{"en", "ta", "unitId", "questionIds", "meaning"?, "seenIn"?}], sorted by unit then
 English. A pair whose source can't be found stops the build, so a changed paper can't silently drop a term.
 
-Second source: textbook glossaries (silver/terms/<path>_glossary.json, from glossary_pairs.py). Only pairs read
-from a clean text layer ("via": "text") are used; OCR-read pairs wait for review. A glossary word already in the
+Second source: textbook glossaries (silver/terms/<path>_glossary.json, from glossary_pairs.py). Pairs read
+from a clean text layer ("via": "text") are used, and OCR-read pairs only once confirmed by the Tamil-medium
+books (see glossary_pairs.py). A glossary word already in the
 list adds its meaning and where it is taught; a new word joins with no questions, under the syllabus unit of
 the textbook unit it comes from (gold/textbooks/<path>_units.json), or the subject's unit when that textbook
 unit is outside the syllabus. When books give one word different Tamil, the most frequent wins.
@@ -61,7 +62,7 @@ def glossary_terms(content: Path, path_id: str, terms: list) -> list:
     src = content / "silver/terms" / f"{path_id}_glossary.json"
     if not src.exists():
         return []
-    pairs = [p for p in json.loads(src.read_text(encoding="utf-8")) if p["via"] == "text"]
+    pairs = [p for p in json.loads(src.read_text(encoding="utf-8")) if p["via"] == "text" or p.get("confirmed")]
     nodes = {n["id"]: n for n in json.loads((content / "gold/syllabus" / f"{path_id}.json").read_text(encoding="utf-8"))["nodes"]}
     tb = {u["id"]: u for u in json.loads((content / "gold/textbooks" / f"{path_id}_units.json").read_text(encoding="utf-8"))}
     books = {b["id"]: b for b in json.loads((content / "silver/textbooks/books.json").read_text(encoding="utf-8"))}
