@@ -5,7 +5,8 @@ together), so books are keyed by file content (SHA-256 in bronze/manifest.tsv), 
 
 - English-medium PDFs have a clean text layer: pdftotext, split at form feeds (one entry per PDF page).
 - Tamil-medium PDFs don't (their fonts scramble copied Tamil), so their text comes from OCR of the page
-  images (tesseract tam+eng, 300 dpi), read from <ocr-dir>/<sha10>/pNNN.txt (see ocr_pages.py).
+  images (tesseract tam+eng, 300 dpi), read from <ocr-dir>/<sha10>/pNNN.txt (see ocr_pages.py)
+  Add --tamil-only to leave the English books as they are.
 
 Writes silver/textbooks/books.json and silver/textbooks/<book id>/pages.jsonl ({"p": pdf page, "text": ...}).
 Usage: python extract_pages.py <content-repo> [<ocr-dir>]
@@ -64,15 +65,17 @@ def page_count(pdf: Path) -> int:
 
 
 def clean(t: str) -> str:
-    t = t.replace("­", "").replace("�", "")
+    t = t.replace("­", "").replace("�", "").replace("\u200c", "").replace("\u200d", "")  # OCR puts ZWNJ after virama
     t = re.sub(r"[ \t]+", " ", t)
     return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 
-def main(content: Path, ocr_dir: Path | None) -> None:
+def main(content: Path, ocr_dir: Path | None, only: str | None = None) -> None:
     out = content / "silver/textbooks"
     books, skipped = [], []
     for b in books_from_manifest(content):
+        if only and b["medium"] != only:
+            continue
         pdf = content / b["pdfRef"]
         n = page_count(pdf)
         try:
@@ -104,4 +107,6 @@ def main(content: Path, ocr_dir: Path | None) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]) if len(sys.argv) > 2 else None)
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    only = "tamil" if "--tamil-only" in sys.argv else None
+    main(Path(args[0]), Path(args[1]) if len(args) > 1 else None, only)

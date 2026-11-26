@@ -1,5 +1,5 @@
 """python -m pytest pipeline/textbooks/test_textbooks.py (or run directly)."""
-from units import opener_title, slug_of
+from units import opener_title, slug_key, slug_of
 from tag_units_ccse4 import RULES, clean_title
 
 
@@ -12,6 +12,22 @@ def test_opener_title_reads_the_heading_between_unit_and_objectives():
 def test_slug_is_read_from_the_indesign_footer():
     assert slug_of("text\nVI_Science_Unit_1.indd 12\n") is not None
     assert slug_of("no footer here") is None
+
+
+def test_ocr_slugs_compare_by_what_they_name():
+    assert slug_key("6th Std-Tamil_2025_Term_Il_Unit_1", "tamil") == slug_key("6th Std-Tamil_2025_Term_II_Unit_1", "tamil")
+    assert slug_key("6th Science_TM_Unit-l", "tamil") == slug_key("6th Science_TM_Unit-1", "tamil")
+    assert slug_key("6th Std-Tamil_2025_Term_Il_Unit_1", "tamil") != slug_key("6th Std-Tamil_2025_Term_Il_Unit_2", "tamil")
+    assert slug_key("VI_History_TM_Unit_1", "tamil") != slug_key("VI_Geography_TM_Unit_1", "tamil")
+    assert slug_key("6th_2nd_Term_English_Unit_l", "tamil").startswith("english")
+    assert slug_key("X_Unit-01", "english") == "X_Unit-01"
+
+
+def test_tamil_openers():
+    assert opener_title("இயல் உயிருக்கு வேர்\nஇயற்கை, சுற்றுச்சூழல்\nகற்றல் நோக்கங்கள்\n> ...") == "உயிருக்கு வேர் இயற்கை, சுற்றுச்சூழல்"
+    assert opener_title("eeu மொழி\nபவ நோக்கங்கள்\nமொழியின் தேவை") == "eeu மொழி"  # garbled heading, objectives still near the top
+    assert opener_title("கற்றல் நோக்கங்கள்\n> மொழிபெயர்ப்பு") == ""
+    assert opener_title("முன்னுரை\n" + "உரை\n" * 12 + "கற்றல் நோக்கங்கள்") is None
 
 
 def test_clean_title():
