@@ -9,6 +9,7 @@ Two steps, both deterministic (same inputs give byte-identical output, AT-P1):
 
   merge <content-repo> <path-id> <version>
       every gold/papers/<path-id>_*.json + gold/syllabus/<path-id>.json
+    + config/paths/<path-id>.json (optional: rankingExcludedSections per paper)
     -> gold/bundles/<path-id>.json            what the app downloads (papers newest first)
 
 The merge refuses to write a bundle with duplicate question ids, untagged questions, or topics that are not
@@ -67,6 +68,18 @@ def merge(content: Path, path_id: str, version: str) -> None:
     if not files:
         sys.exit(f"no gold/papers/{path_id}_*.json")
     parts = sorted((read(f) for f in files), key=lambda p: p["paper"]["date"], reverse=True)  # newest first
+    # Per-path decisions AK made about papers (config/paths/<path>.json), e.g. which sections don't count
+    # for topic ranking because they were set on an older syllabus. Unknown paper ids are an error.
+    cfg_path = content / "config/paths" / f"{path_id}.json"
+    cfg = read(cfg_path) if cfg_path.exists() else {}
+    excluded = cfg.get("rankingExcludedSections", {})
+    unknown = set(excluded) - {p["paper"]["id"] for p in parts}
+    if unknown:
+        sys.exit(f"{cfg_path.name}: unknown papers {sorted(unknown)}")
+    for part in parts:
+        secs = excluded.get(part["paper"]["id"])
+        if secs:
+            part["paper"] = {**part["paper"], "rankingExcludedSections": sorted(secs)}
 
     questions, seen, problems = [], set(), []
     for part in parts:
