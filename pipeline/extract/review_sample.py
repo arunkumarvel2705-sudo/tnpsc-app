@@ -14,7 +14,8 @@ from pathlib import Path
 def block(q: dict, lang: str) -> list[str]:
     t = q[lang]
     key = "ALL (everyone scores)" if q["accepted"] == "ALL" else " / ".join(q["accepted"])
-    lines = [f"## Q{q['n']} · page {q['page']} · {'Tamil' if lang == 'ta' else 'English'}", "", "- [ ] matches the scan", ""]
+    where = f"page {q['page']}" + (f" of `{q['pdfRef'].rsplit('/', 1)[-1]}`" if "pdfRef" in q else "")
+    lines = [f"## Q{q['n']} · {where} · {'Tamil' if lang == 'ta' else 'English'}", "", "- [ ] matches the scan", ""]
     lines += [t["stem"].replace("\n", "  \n"), ""]
     lines += [f"- ({k}) {v}" for k, v in t["options"].items()]
     lines += ["", f"Final key: {key}", ""]
@@ -31,7 +32,7 @@ def main(content: Path, paper_id: str) -> None:
     b_en, b_ta = (sorted(b[:6]), sorted(b[6:])) if has_ta_b else (sorted(b), [])
 
     out = [f"# AT-P3 review sample: {paper_id}, 20 questions", "",
-           f"Open `{silver['qpRef']}` at the page shown and tick each question whose text and options match the "
+           f"Open `{silver['qpRef'] if 'qpRefs' not in silver else ' / '.join(silver['qpRefs'].values())}` at the page shown and tick each question whose text and options match the "
            "scan exactly. Note any difference under the question.", "",
            f"Part A: {part_a} · Part B English: {b_en}" + (f" · Part B Tamil: {b_ta}" if b_ta else ""), ""]
     for n in part_a:
