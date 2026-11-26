@@ -1,7 +1,7 @@
 // Syllabus browser: every unit and topic of the path with its past questions and AK's record on them.
 import { servableQuestions, topicIndex } from "../../core/content";
 import { outcome } from "../../core/scoring";
-import type { AnswerGiven, ContentBundle } from "../../core/types";
+import type { AnswerGiven, ContentBundle, Reading } from "../../core/types";
 
 export interface TopicRow {
   topicId: string;
@@ -67,4 +67,18 @@ export function askedText(row: TopicRow): string {
   const papers = row.papersTotal === 1 ? "paper" : "papers";
   if (row.papersAsked === 0) return `not asked in the last ${row.papersTotal} ${papers}`;
   return `asked in ${row.papersAsked} of ${row.papersTotal} ${papers}`;
+}
+
+/** Textbook units for a topic: English medium first, then by class (lowest first) and page. */
+export function readingsFor(bundle: ContentBundle, topicId: string): Reading[] {
+  const cls = (r: Reading) => Number(/Class (\d+)/.exec(r.label)?.[1] ?? 99);
+  return (bundle.readings ?? [])
+    .filter((r) => r.topicIds.includes(topicId))
+    .sort((a, b) => (a.medium === b.medium ? 0 : a.medium === "english" ? -1 : 1) || cls(a) - cls(b) || a.pageStart - b.pageStart);
+}
+
+/** "Class 9 Science · Motion · PDF pages 18–29" */
+export function readingText(r: Reading): string {
+  const pages = r.pageStart === r.pageEnd ? `PDF page ${r.pageStart}` : `PDF pages ${r.pageStart}–${r.pageEnd}`;
+  return `${r.label} · ${r.title} · ${pages}`;
 }

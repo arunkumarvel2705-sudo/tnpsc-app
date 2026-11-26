@@ -49,6 +49,18 @@ export interface ContentBundle {
   topics?: { id: string; unitId: string; nameEn: string; nameTa: string | null }[]; // optional until the pipeline emits it
   questions: Question[];
   terms?: Term[]; // Term Bridge, optional until the pipeline emits it
+  readings?: Reading[]; // textbook units to read per topic, optional until the pipeline emits it
+}
+
+/** A textbook unit that teaches some syllabus topics: where to read it. Pages are PDF pages, not printed ones. */
+export interface Reading {
+  topicIds: string[];
+  label: string; // "Class 9 Science", "Class 6 History, Term 2"
+  medium: "english" | "tamil";
+  title: string; // unit title ("Motion"), or "இயல் 3" for a Tamil reader chapter
+  pdfRef: string; // path in the content repo
+  pageStart: number;
+  pageEnd: number;
 }
 
 /** One English-Tamil technical term pair (Term Bridge), with the past questions it appears in. */
