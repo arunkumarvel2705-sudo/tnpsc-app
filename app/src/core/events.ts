@@ -1,7 +1,7 @@
 // core/events — raw event files -> validated, de-duplicated, ordered log. (Agent: events)
 // Contract is fixed; implement the bodies. Tests: AT-C1, AT-C2, plus validation cases.
 import { mergeEvents } from "./scoring";
-import type { AnswerGiven, ErrorTagged, LearningEvent } from "./types";
+import type { AnswerGiven, ErrorTagged, LearningEvent, TagReviewed } from "./types";
 
 const ISO_WITH_ZONE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -14,6 +14,7 @@ const OPTIONS: readonly string[] = ["A", "B", "C", "D", "E"];
 const CONFIDENCES: readonly string[] = ["sure", "guess", "none"];
 const MODES: readonly string[] = ["diagnostic", "practice", "review", "mock"];
 const REASONS: readonly string[] = ["concept", "careless", "misread", "time", "memory", "other"];
+const VERDICTS: readonly string[] = ["confirm", "change", "nofit"];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNonEmptyString = (v: unknown): v is string => typeof v === "string" && v.length > 0;
@@ -29,14 +30,14 @@ const showBare = (v: unknown): string => (typeof v === "string" ? v : show(v));
 
 /**
  * Validate one parsed JSON value. Returns the event, or a reason string when it is not a valid
- * schemaVersion-1 AnswerGiven or ErrorTagged. Normalises: chosen "E" forces confidence "none" (AT-C5).
+ * schemaVersion-1 AnswerGiven, ErrorTagged or TagReviewed. Normalises: chosen "E" forces confidence "none" (AT-C5).
  * Unknown extra fields are dropped from the returned object. `at` is normalised to UTC ISO form
  * (e.g. "...+05:30" -> "...Z") so that sorting by text equals sorting by time.
  */
 export function validateEvent(raw: unknown): LearningEvent | string {
   if (!isObject(raw)) return `not an object: ${show(raw)}`;
   const r = raw;
-  if (r.type !== "answer" && r.type !== "errorTag") return `bad type: ${showBare(r.type)}`;
+  if (r.type !== "answer" && r.type !== "errorTag" && r.type !== "tagReview") return `bad type: ${showBare(r.type)}`;
   if (r.schemaVersion !== 1) return `bad schemaVersion: ${show(r.schemaVersion)}`;
   for (const k of ["eventId", "deviceId", "sessionId"] as const) {
     if (!isNonEmptyString(r[k])) return `bad ${k}: ${show(r[k])}`;
@@ -69,6 +70,14 @@ export function validateEvent(raw: unknown): LearningEvent | string {
       mode: r.mode as AnswerGiven["mode"],
       contentVersion: r.contentVersion,
     };
+    return ev;
+  }
+
+  if (r.type === "tagReview") {
+    if (!isNonEmptyString(r.questionId)) return `bad questionId: ${show(r.questionId)}`;
+    if (typeof r.verdict !== "string" || !VERDICTS.includes(r.verdict)) return `bad verdict: ${showBare(r.verdict)}`;
+    if (!isNonEmptyString(r.topicId)) return `bad topicId: ${show(r.topicId)}`;
+    const ev: TagReviewed = { type: "tagReview", ...base, questionId: r.questionId, verdict: r.verdict as TagReviewed["verdict"], topicId: r.topicId };
     return ev;
   }
 
