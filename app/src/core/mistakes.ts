@@ -6,8 +6,8 @@
 //   spaced  - at least one counted correct + sure answer since the last wrong; FSRS times further retests
 //   fixed   - streak >= 3 AND daysBetween(streakStartDay, day of the latest counted answer) >= 14
 //             AND (not misconception OR transferDone OR not transferPossible)
-//   transferPossible = the concept has at least one other learnable question (active, not keyed ALL);
-//   without one a misconception could never be fixed (review finding 8).
+//   transferPossible = the concept has at least one other learnable question (active, not keyed ALL) that
+//   the app can serve (content.isServable); without one a misconception could never be fixed (review finding 8).
 //
 // Processing, in sortEvents order, learnable answers only (scoring.learningOutcome !== "unscored": deleted
 // and ALL-keyed questions carry no evidence), keyed by conceptKey(q):
@@ -27,7 +27,7 @@
 //   correct, no state or fixed: nothing
 //   E always arrives with confidence "none" (AT-C5) so it can never set misconception.
 // reason = reason of the latest ErrorTagged whose answerEventId is lastWrongEventId, else null.
-import { conceptKey } from "./content";
+import { conceptKey, isServable } from "./content";
 import { effectiveConfidence, learningOutcome, sortEvents } from "./scoring";
 import { addDays, daysBetween, localDay } from "./time";
 import type { ErrorReason, LearningEvent, Question } from "./types";
@@ -61,10 +61,11 @@ export function mistakeStates(log: LearningEvent[], questions: Map<string, Quest
   // Working sets for wrongQuestionIds; copied into sorted arrays on output.
   const wrongIds = new Map<string, Set<string>>();
   const sureWrongIds = new Map<string, Set<string>>();
-  // Learnable questions per concept, to know whether a transfer question can exist.
+  // Learnable questions per concept, to know whether a transfer question can exist. A hidden (figure) question
+  // is never served, so it cannot be the transfer question.
   const conceptSize = new Map<string, number>();
   for (const q of questions.values()) {
-    if (q.status === "deleted" || q.accepted === "ALL") continue;
+    if (q.status === "deleted" || q.accepted === "ALL" || !isServable(q)) continue;
     conceptSize.set(conceptKey(q), (conceptSize.get(conceptKey(q)) ?? 0) + 1);
   }
 

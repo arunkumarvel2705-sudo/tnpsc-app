@@ -1,6 +1,7 @@
 // The question screen (spec: gets the most design care). Works through one Session.
 // Flow: choose option -> confidence (skipped for E, AT-U1) -> reveal -> next.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isServable } from "../core/content";
 import { effectiveConfidence, outcome } from "../core/scoring";
 import type { AnswerGiven, Confidence, ContentBundle, Option } from "../core/types";
 import { matchTable, stemLines } from "./format";
@@ -17,7 +18,10 @@ export function QuestionPlayer({ bundle, session, deviceId, onAnswer, onAdvance,
 }) {
   const byId = useMemo(() => new Map(bundle.questions.map((q) => [q.id, q])), [bundle]);
   const i = Math.min(session.index, session.questionIds.length - 1);
-  const q = byId.get(session.questionIds[i]);
+  const found = byId.get(session.questionIds[i]);
+  // A session saved before the content marked a question as needing a figure can still hold it: skip it.
+  const hidden = found !== undefined && !isServable(found);
+  const q = hidden ? undefined : found;
   const [phase, setPhase] = useState<"choose" | "confidence" | "reveal">("choose");
   const [chosen, setChosen] = useState<Option | null>(null);
   const [confidence, setConfidence] = useState<Confidence | null>(null);
@@ -28,7 +32,7 @@ export function QuestionPlayer({ bundle, session, deviceId, onAnswer, onAdvance,
   if (!q) {
     return (
       <main className="wrap">
-        <p>This question is no longer in your content.</p>
+        <p>{hidden ? "This question needs a diagram the app can't show yet, so it is skipped." : "This question is no longer in your content."}</p>
         <button className="primary" onClick={() => onAdvance(i + 1)}>Skip</button>
       </main>
     );

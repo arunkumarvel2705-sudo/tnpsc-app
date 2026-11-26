@@ -265,3 +265,19 @@ describe("rules", () => {
     expect([...replay.entries()]).toEqual([...first.entries()]);
   });
 });
+
+describe("questions that need a figure", () => {
+  it("do not count towards the answers a small unit needs, since they are never served", () => {
+    const qs = [q("s1", "S"), q("s2", "S"), q("s3", "S"), q("sf", "S", { figure: true })];
+    const answers = [ans("s1", "A", "sure"), ans("s2", "A", "sure"), ans("s3", "A", "sure")];
+    const s = skillStates(["S"], answers, index(qs), new Map()).get("S")!;
+    expect(s.box).not.toBe("insufficient");
+    expect(s.scored).toBe(3);
+  });
+
+  it("an old answer to a now-hidden question still counts as evidence and does not crash", () => {
+    const qs = [q("s1", "S", { figure: true }), q("s2", "S")];
+    const s = skillStates(["S"], [ans("s1", "A", "sure"), ans("s2", "A", "sure")], index(qs), new Map()).get("S")!;
+    expect(s).toMatchObject({ scored: 2, correct: 2 });
+  });
+});

@@ -390,3 +390,77 @@ describe("AT-C2: deterministic replay", () => {
     expect(first.date).toBe(TODAY);
   });
 });
+
+describe("topics no counted paper ranks (papersTotal 0)", () => {
+  it("score 0, never the focus, no NaN anywhere", () => {
+    const plan = planDay({
+      today: TODAY, pathExam: "CCSE-IV",
+      topics: [topic("T.old", "U1", 0, 0), topic("T.ok", "U2", 1, 2)],
+      questions: [q("o1", "T.old", "U1"), q("k1", "T.ok", "U2")],
+      answers: [], skills: skillsOf(skill("U1", "weak"), skill("U2", "weak")), mistakes: new Map(), cards: new Map(),
+    });
+    expect(plan.focus?.topicId).toBe("T.ok");
+    expect(Number.isFinite(plan.focus?.score)).toBe(true);
+    const alone = planDay({
+      today: TODAY, pathExam: "CCSE-IV", topics: [topic("T.old", "U1", 0, 0)], questions: [q("o1", "T.old", "U1")],
+      answers: [], skills: skillsOf(skill("U1", "weak")), mistakes: new Map(), cards: new Map(),
+    });
+    expect(alone.focus).toBeNull();
+    expect(alone.practiceSet).toEqual([]);
+  });
+});
+
+describe("questions that need a figure are never served", () => {
+  const fig = (x: Question): Question => ({ ...x, figure: true });
+  const base = { today: TODAY, pathExam: "CCSE-IV", answers: [] as AnswerGiven[], mistakes: new Map(), cards: new Map() };
+
+  it("practice: neither the focus picks nor the older-topic picks include them", () => {
+    const plan = planDay({
+      ...base,
+      topics: [topic("T1", "U1", 1, 1), topic("T2", "U2", 1, 2)],
+      questions: [fig(q("f1", "T1", "U1")), q("a1", "T1", "U1"), q("a2", "T1", "U1"), fig(q("o1", "T2", "U2")), q("o2", "T2", "U2")],
+      answers: [wrong("o1", "2026-11-20T05:00:00Z"), wrong("o2", "2026-11-20T05:01:00Z")],
+      skills: skillsOf(skill("U1", "weak"), skill("U2", "shaky")),
+    });
+    expect(plan.focus?.topicId).toBe("T1");
+    expect(plan.practiceSet).toEqual(["a1", "a2", "o2"]);
+    expect(plan.olderTopicQuestionIds).toEqual(["o2"]);
+  });
+
+  it("diagnostic: the unit's never-answered pool skips them", () => {
+    const plan = planDay({
+      ...base,
+      topics: [topic("T1", "U1", 1, 1)],
+      questions: [q("d1", "T1", "U1"), fig(q("d2", "T1", "U1")), q("d3", "T1", "U1")],
+      skills: new Map(),
+    });
+    expect(plan.mode).toBe("diagnostic");
+    expect(plan.practiceSet).toEqual(["d1", "d3"]);
+  });
+
+  it("a topic whose only questions need a figure is never the focus", () => {
+    const plan = planDay({
+      ...base,
+      topics: [topic("Tfig", "U1", 1, 1), topic("T2", "U2", 1, 4)],
+      questions: [fig(q("f1", "Tfig", "U1")), q("b1", "T2", "U2")],
+      skills: skillsOf(skill("U1", "misconception"), skill("U2", "shaky")),
+    });
+    expect(plan.focus?.topicId).toBe("T2");
+    expect(plan.practiceSet).toEqual(["b1"]);
+  });
+
+  it("review and quick: a retest or a due card for a hidden question never comes due; the rest still do", () => {
+    const plan = planDay({
+      ...base,
+      topics: [],
+      questions: [fig(q("f1", "T1", "U1")), q("a1", "T1", "U1"), q("a2", "T1", "U1"), fig(q("f2", "T2", "U1"))],
+      skills: new Map(),
+      mistakes: mistakesOf(mistake("c1", "T1", "logged", "2026-11-20", ["a1", "f1"]), mistake("c2", "T2", "logged", "2026-11-20", ["f2"])),
+      cards: cardsOf(card("q:f1", "2026-11-01"), card("q:a2", "2026-11-02"), card("q:f2", "2026-11-03")),
+    });
+    expect(plan.review.retestConceptIds).toEqual(["c1"]);
+    expect(plan.review.cardIds).toEqual(["q:a2"]);
+    expect(plan.review.questionIds).toEqual(["a1", "a2"]);
+    expect(plan.quick).toEqual(["a1", "a2"]);
+  });
+});

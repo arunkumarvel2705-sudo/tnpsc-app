@@ -22,6 +22,7 @@ export interface Question {
   status: "active" | "deleted";
   format?: "match";
   hasFigure?: boolean;
+  figure?: true; // needs a diagram from the PDF that the app cannot show yet: never served (content.isServable)
   conceptId?: string; // finest tag; when absent the topic stands in for the concept (see conceptKey)
   topicId?: string;
   unitId?: string;
@@ -33,6 +34,9 @@ export interface Paper {
   title: string;
   date: string;
   sections: { id: Question["section"]; title: string; questions: number }[];
+  // Sections set on an older syllabus (e.g. the 2024 and 2022 Tamil parts, mostly poets and literature):
+  // still practised and mocked, but left out of how often a topic is asked (content.topicIndex).
+  rankingExcludedSections?: Question["section"][];
 }
 
 export interface ContentBundle {

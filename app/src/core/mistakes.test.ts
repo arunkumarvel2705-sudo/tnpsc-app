@@ -198,3 +198,22 @@ describe("AT-C2: replay", () => {
     expect(mistakeStates(log, Q)).toEqual(a);
   });
 });
+
+describe("questions that need a figure", () => {
+  it("cannot be the transfer question, so a misconception with no other servable question can still be fixed", () => {
+    const qs = qmap(q("q1", ["A"], { conceptId: "c1" }), { ...q("q2", ["A"], { conceptId: "c1" }), figure: true });
+    const log = [ans("q1", "B", "sure", at(0)), ans("q1", "A", "sure", at(1)), ans("q1", "A", "sure", at(8)), ans("q1", "A", "sure", at(15))];
+    // With q2 servable the same answers leave the misconception open, waiting for a different question.
+    const servable = qmap(q("q1", ["A"], { conceptId: "c1" }), q("q2", ["A"], { conceptId: "c1" }));
+    expect(state(log, "c1", servable)).toMatchObject({ transferPossible: true, stage: "spaced" });
+    const m = state(log, "c1", qs)!;
+    expect(m.transferPossible).toBe(false);
+    expect(m.stage).toBe("fixed");
+  });
+
+  it("old answers to a now-hidden question are still replayed without error", () => {
+    const qs = qmap({ ...q("q1", ["A"], { conceptId: "c1" }), figure: true }, q("q2", ["A"], { conceptId: "c1" }));
+    const m = state([ans("q1", "B", "sure", at(0))], "c1", qs)!;
+    expect(m).toMatchObject({ stage: "logged", misconception: true, wrongQuestionIds: ["q1"] });
+  });
+});

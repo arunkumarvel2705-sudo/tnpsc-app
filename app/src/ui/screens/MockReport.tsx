@@ -4,7 +4,7 @@
 import { useMemo } from "react";
 import { mockReport } from "../../core/mock";
 import type { MockReportProps } from "./contracts";
-import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
+import { confidenceLine, hiddenLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
 import "./mockreport.css";
 
 const CONF_COLS = [
@@ -41,6 +41,7 @@ export function MockReport({ bundle, log, sessionId, paperId, timeUsedMs, onPrac
           {r.correct} right · {r.wrong} wrong · no marks taken off for wrong answers
           {r.unscored > 0 && <> · {r.unscored} deleted by TNPSC, not counted</>}
         </p>
+        {r.hidden > 0 && <p className="muted small mrep-sub">{hiddenLine(r.hidden)}</p>}
         {r.timeUsedMs > 0 && <p className="muted small mrep-sub">Time used {hmm(r.timeUsedMs)} of 3:00</p>}
       </article>
 

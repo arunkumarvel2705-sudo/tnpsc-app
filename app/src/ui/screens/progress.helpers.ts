@@ -1,5 +1,5 @@
 // Pure display helpers for the Progress tab. No rules live here: lifecycle and box numbers come from core state.
-import { conceptKey } from "../../core/content";
+import { conceptKey, isServable } from "../../core/content";
 import type { MistakeState } from "../../core/mistakes";
 import type { Box, SkillState } from "../../core/skillmap";
 import { addDays, daysBetween, localDay } from "../../core/time";
@@ -147,13 +147,15 @@ export function snippet(q: Question, max = 80): string {
 }
 
 /** The questions to retest now: the missed ones, plus up to 3 other active questions on the same concept
- *  when a misconception still needs an answer on a different question. */
+ *  when a misconception still needs an answer on a different question. A question that needs a figure
+ *  (content.isServable) is left out, so this can be empty. */
 export function practiseIds(m: MistakeState, questions: Question[]): string[] {
-  const ids = [...m.wrongQuestionIds];
+  const hidden = new Set(questions.filter((q) => !isServable(q)).map((q) => q.id));
+  const ids = m.wrongQuestionIds.filter((id) => !hidden.has(id));
   if (m.misconception && !m.transferDone && m.stage !== "fixed") {
-    const missed = new Set(ids);
+    const missed = new Set(m.wrongQuestionIds);
     const extra = questions
-      .filter((q) => q.status === "active" && !missed.has(q.id) && conceptKey(q) === m.conceptId)
+      .filter((q) => q.status === "active" && isServable(q) && !missed.has(q.id) && conceptKey(q) === m.conceptId)
       .slice(0, 3)
       .map((q) => q.id);
     ids.push(...extra);

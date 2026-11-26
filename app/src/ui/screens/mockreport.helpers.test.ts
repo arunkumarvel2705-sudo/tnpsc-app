@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mockReport, type MockReport } from "../../core/mock";
 import type { AnswerGiven, ContentBundle, Option, Question } from "../../core/types";
-import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
+import { confidenceLine, hiddenLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } from "./mockreport.helpers";
 
 function q(id: string, n: number, unitId: string, extra: Partial<Question> = {}): Question {
   return {
@@ -47,6 +47,12 @@ describe("wrongIds", () => {
     const log = [ans("n1", "B"), ans("t2", "B")];
     expect(wrongIds(log, two, "m1", "p1")).toEqual(["t2"]);
     expect(wrongIds(log, two, "m1", "p0")).toEqual(["n1"]);
+  });
+  it("never offers a question that now needs a figure, even if an old mock answered it wrong", () => {
+    const hidden: ContentBundle = { ...bundle, questions: bundle.questions.map((x) => (x.id === "t2" ? { ...x, figure: true as const } : x)) };
+    const log = [ans("g1", "E"), ans("t2", "B")];
+    expect(wrongIds(log, hidden, "m1", "p1")).toEqual(["g1"]);
+    expect(mockReport(log, hidden, "m1", "p1", 0)).toMatchObject({ wrong: 1, hidden: 1, total: 4 });
   });
 });
 
@@ -102,5 +108,12 @@ describe("confidenceLine", () => {
     expect(confidenceLine(report({ confidence: conf(0, 2) }))).toMatch(/2 right answers were guesses/);
     expect(confidenceLine(report({ confidence: conf(0, 0, 5) }))).toMatch(/when you felt sure, you were right/);
     expect(confidenceLine(report({ confidence: conf(0, 0) }))).toBe("No answers to read yet.");
+  });
+});
+
+describe("hiddenLine", () => {
+  it("says in one line how many questions needing a diagram were left out", () => {
+    expect(hiddenLine(1)).toBe("1 question needs a diagram and was left out.");
+    expect(hiddenLine(3)).toBe("3 questions need a diagram and were left out.");
   });
 });

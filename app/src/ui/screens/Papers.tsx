@@ -1,5 +1,6 @@
 // Practice tab: work straight through a whole paper section (the early version's home screen).
 // Each paper in the bundle (newest first) has its own sections and its own resume pointers.
+import { sectionQuestionIds } from "../../core/content";
 import { summarise } from "../../core/scoring";
 import type { AnswerGiven, ContentBundle, Question } from "../../core/types";
 import { progressKey } from "../session";
@@ -18,10 +19,13 @@ export function Papers({ bundle, answers, progress, onStart }: {
         <section key={p.id}>
           <h2 className="paper">{p.title}</h2>
           {p.sections.map((s) => {
-            const inSection = (q: Question | undefined) => q?.paperId === p.id && q.section === s.id;
-            const qs = bundle.questions.filter(inSection);
+            // The same list the walk-through serves (hidden figure questions left out), so the count, the bar
+            // and "Continue from" always match it.
+            const ids = sectionQuestionIds(bundle, p.id, s.id);
+            const qs = ids.map((id) => questions.get(id)).filter((q): q is Question => q !== undefined);
             if (!qs.length) return null;
-            const sum = summarise(answers.filter((e) => inSection(questions.get(e.questionId))), questions);
+            const inSection = new Set(ids);
+            const sum = summarise(answers.filter((e) => inSection.has(e.questionId)), questions);
             const at = progress[progressKey(p.id, s.id)] ?? 0;
             // With several papers the session header needs the paper too ("Continue Tamil" would be ambiguous).
             const title = many ? `${p.title}: ${s.title}` : s.title;

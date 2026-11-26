@@ -24,6 +24,10 @@
 // every count above is against that paper's questions only (paperQuestionIds). Answer events carry no
 // paper id (the event format is fixed), so history derives each session's paper from the paperId of
 // the questions it answered (mockPaperId).
+// Hidden questions: a question that needs a figure (content.isServable false) is not served, so it is not
+// part of the mock at all: total, maxMarks, parts and units count served questions only, and `hidden`
+// says how many were left out so the report can say so. Old mocks are rescored the same way.
+import { isServable } from "./content";
 import { answersOf } from "./events";
 import { effectiveConfidence, latestAnswers, learningOutcome, outcome } from "./scoring";
 import type { AnswerGiven, ContentBundle, LearningEvent, Question } from "./types";
@@ -45,7 +49,8 @@ export interface MockReport {
   sessionId: string;
   paperId: string;
   submittedAt: string; // `at` of the latest answer in the session
-  total: number; // questions in the paper
+  total: number; // questions served in the mock (the paper less hidden ones)
+  hidden: number; // questions of the paper left out because they need a figure the app cannot show yet
   answered: number;
   unanswered: number;
   correct: number;
@@ -60,9 +65,14 @@ export interface MockReport {
   timeUsedMs: number;
 }
 
-/** Questions of one paper, in bundle (paper) order. */
+/** Questions of one paper a mock serves, in bundle (paper) order: hidden (figure) questions are left out. */
 export function paperQuestionIds(bundle: ContentBundle, paperId: string): string[] {
-  return bundle.questions.filter((q) => q.paperId === paperId).map((q) => q.id);
+  return bundle.questions.filter((q) => q.paperId === paperId && isServable(q)).map((q) => q.id);
+}
+
+/** Questions of one paper left out of its mock because they need a figure. */
+export function hiddenQuestionCount(bundle: ContentBundle, paperId: string): number {
+  return bundle.questions.filter((q) => q.paperId === paperId && !isServable(q)).length;
 }
 
 /**
@@ -190,6 +200,7 @@ function reportFrom(mine: AnswerGiven[], bundle: ContentBundle, sessionId: strin
     paperId,
     submittedAt,
     total: paper.length,
+    hidden: hiddenQuestionCount(bundle, paperId),
     answered,
     unanswered: paper.length - answered,
     correct,
@@ -237,7 +248,7 @@ export function mockHistory(log: LearningEvent[], bundle: ContentBundle): MockHi
 export interface MockPaperChoice {
   paperId: string;
   title: string;
-  questions: number; // questions in the paper (deleted ones included: they are still on the sheet)
+  questions: number; // questions the mock serves (deleted ones included: they are still on the sheet; hidden ones not)
   last: MockHistoryEntry | null; // the latest mock of this paper, if any
 }
 

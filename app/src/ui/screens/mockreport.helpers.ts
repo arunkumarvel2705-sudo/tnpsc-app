@@ -53,6 +53,11 @@ export function unattemptedUnits(r: MockReport): { unitId: string; name: string;
   return r.byUnit.filter((u) => u.total > 0 && u.answered === 0).map(({ unitId, name, total }) => ({ unitId, name, total }));
 }
 
+/** Said when a paper's mock left out questions that need a diagram (MockReport.hidden). */
+export function hiddenLine(n: number): string {
+  return n === 1 ? "1 question needs a diagram and was left out." : `${n} questions need a diagram and were left out.`;
+}
+
 /** One plain line reading the confidence table. */
 export function confidenceLine(r: MockReport): string {
   const c = r.confidence;
