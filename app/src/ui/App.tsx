@@ -16,6 +16,7 @@ import { MockRunner } from "./screens/MockRunner";
 import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
+import { Settings } from "./screens/Settings";
 import { Syllabus } from "./screens/Syllabus";
 import { TermBridge } from "./screens/TermBridge";
 import { TagReview } from "./screens/TagReview";
@@ -32,7 +33,8 @@ type View =
   | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number }
   | { name: "tags" }
   | { name: "syllabus" }
-  | { name: "terms" };
+  | { name: "terms" }
+  | { name: "settings" };
 
 /** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
 function readLog(): LearningEvent[] {
@@ -172,6 +174,23 @@ export default function App() {
   const openScan = async (pdfRef: string, page: number) => {
     try { window.open(`${await pdfLink(token, pdfRef)}#page=${page}`, "_blank"); } catch (e) { alert((e as Error).message); }
   };
+  const checkContent = async (): Promise<string> => {
+    const t = store.token();
+    if (!t) return "Not signed in.";
+    if (!navigator.onLine) return "You're offline. Try again when connected.";
+    const b = await fetchBundle(t);
+    if (b.version === store.bundle()?.version) return `Up to date (version ${b.version}).`;
+    store.setBundle(b); setBundle(b);
+    return `Updated to version ${b.version}.`;
+  };
+  const backup = () => {
+    const blob = new Blob([JSON.stringify(store.events(), null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `tnpsc-jarvis-events-${today}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
   const reviewTag = (questionId: string, verdict: TagReviewed["verdict"], topicId: string) => record({
     type: "tagReview", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at: new Date().toISOString(), schemaVersion: 1,
     sessionId: "tags", questionId, verdict, topicId,
@@ -191,6 +210,11 @@ export default function App() {
   if (view.name === "mockReport")
     return <MockReport bundle={bundle} log={log} sessionId={view.sessionId} paperId={view.paperId} timeUsedMs={view.timeUsedMs}
       onPractise={(title, ids) => start("quick", title, ids)} onDone={() => setView({ name: "tabs" })} />;
+  if (view.name === "settings")
+    return <Settings bundle={bundle} log={log} deviceId={store.deviceId()} pending={pending} syncState={sync} gsLang={gsLang} onGsLang={setGsLang}
+      onCheckContent={checkContent} onSyncNow={syncNow} onBackup={backup}
+      onSignOut={() => { if (confirm("Remove the token from this device?")) { store.setToken(null); setToken(null); setView({ name: "tabs" }); } }}
+      onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "terms") return <TermBridge bundle={bundle} onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "syllabus")
     return <Syllabus bundle={bundle} answers={answers} pathExam={PATH_EXAM} onPractise={(title, ids) => start("quick", title, ids)}
@@ -251,7 +275,7 @@ export default function App() {
             <span>Content {bundle.version}</span>
             {sync.state === "error" && <span className="error">Sync failed: {sync.msg}</span>}
             {pending > 0 && sync.state !== "busy" && <button onClick={syncNow}>Sync now</button>}
-            <button className="link" onClick={() => { if (confirm("Remove the token from this device?")) { store.setToken(null); setToken(null); } }}>Sign out</button>
+            <button className="link" onClick={() => setView({ name: "settings" })}>Settings</button>
           </footer>
         </>
       )}
