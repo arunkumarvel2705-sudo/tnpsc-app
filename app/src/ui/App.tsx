@@ -17,6 +17,7 @@ import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
 import { Syllabus } from "./screens/Syllabus";
+import { TermBridge } from "./screens/TermBridge";
 import { TagReview } from "./screens/TagReview";
 import { Today } from "./screens/Today";
 import { newSession, progressKey, type Session, type SessionKind } from "./session";
@@ -30,7 +31,8 @@ type View =
   | { name: "mock" }
   | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number }
   | { name: "tags" }
-  | { name: "syllabus" };
+  | { name: "syllabus" }
+  | { name: "terms" };
 
 /** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
 function readLog(): LearningEvent[] {
@@ -189,6 +191,7 @@ export default function App() {
   if (view.name === "mockReport")
     return <MockReport bundle={bundle} log={log} sessionId={view.sessionId} paperId={view.paperId} timeUsedMs={view.timeUsedMs}
       onPractise={(title, ids) => start("quick", title, ids)} onDone={() => setView({ name: "tabs" })} />;
+  if (view.name === "terms") return <TermBridge bundle={bundle} onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "syllabus")
     return <Syllabus bundle={bundle} answers={answers} pathExam={PATH_EXAM} onPractise={(title, ids) => start("quick", title, ids)}
       onExit={() => setView({ name: "tabs" })} />;
@@ -228,6 +231,13 @@ export default function App() {
                 <p className="muted small">Every unit and topic, how often it is asked, and its past questions to practise.</p>
                 <button onClick={() => setView({ name: "syllabus" })}>Browse the syllabus</button>
               </section>
+              {(bundle.terms?.length ?? 0) > 0 && (
+                <section className="card">
+                  <p><b>Term Bridge</b></p>
+                  <p className="muted small">{bundle.terms!.length} English-Tamil technical terms from the bilingual papers.</p>
+                  <button onClick={() => setView({ name: "terms" })}>Open Term Bridge</button>
+                </section>
+              )}
               <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
             </>
           )}
