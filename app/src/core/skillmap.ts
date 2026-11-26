@@ -9,7 +9,9 @@
 //   unresolvedMisconceptions = sureWrongQuestionIds of every open misconception MistakeState, counted in
 //                              the unit of each question (the current episode only: once a concept is
 //                              fixed its old answers stop counting, and they count until it is fixed)
-//   needed    = min(MIN_ANSWERS, learnable questions in the unit), at least 1
+//   needed    = min(MIN_ANSWERS, learnable questions in the unit), at least 1; only servable questions
+//               (content.isServable) count here, since a unit must be able to leave "insufficient" on
+//               questions the app can actually show. Answers already given to a hidden question still count.
 // Box, first rule that matches:
 //   misconception  unresolvedMisconceptions >= 2   (checked before the data minimum: red must surface)
 //   insufficient   scored < needed   (a 6-question unit is judged once all 6 are answered)
@@ -21,6 +23,7 @@
 //   "5 of 10 correct (50%)", "9 of 10 correct (90%), 8 of 9 sure".
 // Confidence is read through scoring.effectiveConfidence, so a raw E + "sure" counts as "none" (AT-C5).
 // Every unit id passed in gets a state, even with no answers. Questions without unitId are ignored.
+import { isServable } from "./content";
 import type { MistakeState } from "./mistakes";
 import { effectiveConfidence, latestAnswers, learningOutcome } from "./scoring";
 import type { AnswerGiven, Question } from "./types";
@@ -54,7 +57,7 @@ export function skillStates(
   for (const unitId of unitIds) tallies.set(unitId, { learnable: 0, scored: 0, correct: 0, sureCorrect: 0, unresolved: 0 });
 
   for (const q of questions.values()) {
-    if (!q.unitId || q.status === "deleted" || q.accepted === "ALL") continue;
+    if (!q.unitId || q.status === "deleted" || q.accepted === "ALL" || !isServable(q)) continue;
     const t = tallies.get(q.unitId);
     if (t) t.learnable++;
   }
@@ -90,7 +93,7 @@ export function skillStates(
 }
 
 interface Tally {
-  learnable: number; // active, non-ALL questions in the unit
+  learnable: number; // active, non-ALL, servable questions in the unit
   scored: number;
   correct: number;
   sureCorrect: number;
