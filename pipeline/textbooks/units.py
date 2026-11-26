@@ -37,7 +37,8 @@ def slug_of(text: str):
     return m[-1].strip() if m else None
 
 
-OPENER = re.compile(r"Learning (Objectives|Outcomes)|கற்றல்\s*(நோக்கங்கள்|விளைவுகள்)", re.I)
+OPENER = re.compile(r"Learning (Objectives|Outcomes)|கற்றல(்|ின்)\s*(நோக்கங்கள்|விளைவுகள்)", re.I)
+TA_OPENER = re.compile(r"கற்றல(்|ின்)\s*நோக்க")
 TA_UNIT = re.compile(r"^(இயல்|அலகு|பாடம்)")
 
 
@@ -66,7 +67,7 @@ def opener_title(text: str):
         if not any(re.search(r"நோக்கங்கள்", l) for l in head[:3]):
             return None
     elif not any(re.match(r"^(unit|lesson|chapter)\b", l, re.I) or TA_UNIT.match(l) for l in head[:4]) \
-            and not any(re.search(r"கற்றல்\s*நோக்க", l) for l in head[:2]):
+            and not any(TA_OPENER.search(l) for l in head[:6]):
         return None
     out = []
     for l in head:
@@ -124,6 +125,17 @@ def main(content: Path) -> None:
                 if b["end"] - b["start"] < 2 and slug_key(a["slug"], med) == slug_key(c["slug"], med):
                     a["end"] = c["end"]
                     del runs[i:i + 2]
+                else:
+                    i += 1
+            # a run whose slug OCR cut to a stub ("1", "itt"), or a one-page run with a garbled slug, belongs to the run before it
+            i = 1
+            while i < len(runs):
+                r = runs[i]
+                stub = len(re.sub(r"\W", "", r["slug"])) <= 4  # "1", "itt": the rest of the slug lost to OCR
+                junk = r["end"] == r["start"] and not re.search(r"\bun|unit|fm|index|front|author|content", r["slug"], re.I)
+                if stub or junk:
+                    runs[i - 1]["end"] = r["end"]
+                    del runs[i]
                 else:
                     i += 1
         if len(runs) == 1 and runs[0]["slug"] == "(start)":

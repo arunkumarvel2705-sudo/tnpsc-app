@@ -4,8 +4,12 @@
 Claude assigned topics from each unit's title and subject, by keyword rules plus per-unit overrides where the
 rules misread a unit. A unit can serve several topics, or none: world history, road safety and foreign policy
 are in the books but not in the Group 4 syllabus, and are kept for reading with an empty topic list.
-Tamil-medium books: a Science or Social Science unit takes the title and topics of the English-medium unit it
-mirrors (same class, term and part, same position), and the build stops if the counts disagree. A Tamil reader
+Tamil-medium books: a Science or Social Science unit takes the title, part and topics of the English-medium unit
+it mirrors: the same position in the English book of the same class, term and subjects. OCR'd slugs split some
+books wrongly, so TAMIL_FIX adds or drops unit start pages (Claude checked each against the English book), and
+the build stops if a book's unit count still differs from its twin. Class 10 English-medium Science is not on
+the official site yet, so its Tamil-medium book takes the unit titles in TAMIL_ONLY_TITLES (checked against the
+OCR text) and topics by the English rules. A Tamil reader
 chapter is titled "இயல் N" (OCR can't be trusted for its title) and linked to the Part A literature topics whose
 names come up often enough in its pages (TAMIL_KW); the Thirukkural sections of the term books go to the
 Thirukkural topic.
@@ -25,9 +29,9 @@ RULES = {  # part -> [(title regex, topics)], first match wins
         (r"computer|libre|digital|visual comm|hardware|software|impress|calc", ["gs.u1.t5"]),
         (r"environment|conservation", ["gs.u1.t4"]),
         (r"crop|economic biology", ["gs.u1.t3", "gs.u5.t3"]),
-        (r"plant|animal|cell|organ|tissue|health|nutrition|microb|reproduction|classification|adolescence|movement|life|biolog|world of", ["gs.u1.t3"]),
-        (r"matter|atomic|periodic|bond|acid|carbon|chemi|polymer|water|air|changes|element", ["gs.u1.t2"]),
-        (r"measure|motion|force|pressure|fluid|electric|magnet|light|heat|sound|universe|space|energy|temperature", ["gs.u1.t1"]),
+        (r"plant|animal|cell|organ|tissue|health|nutrition|microb|reproduction|classification|adolescence|movement|life|biolog|world of|hered|breed|nervous|hormone|evolution", ["gs.u1.t3"]),
+        (r"matter|atomic|atoms|periodic|bond|acid|carbon|chemi|polymer|water|air|changes|element|solution", ["gs.u1.t2"]),
+        (r"measure|motion|force|pressure|fluid|electric|magnet|light|heat|sound|universe|space|energy|temperature|optic|thermal|acoustic|nuclear", ["gs.u1.t1"]),
     ],
     "history": [
         (r"freedom struggle in tamil|revolts against british rule in tamil", ["gs.u6.t3"]),
@@ -154,8 +158,36 @@ def tamil_reader(u: dict, pages: list, n: int):
     return f"இயல் {num}", topics
 
 
-def mirror_key(u: dict, b: dict, part: str):
-    return (b["class"], b["term"], part)
+TAMIL_FIX = {  # book -> unit start pages to add / drop, or the full list ("starts")
+    "ta_std06_sci-ss_t1_2025": {"add": [195]},  # civics opener page OCR'd without its objectives line
+    "ta_std06_sci-ss_t2_2024": {"drop": [135]},  # a box in "Great Thinkers" read as an opener
+    "ta_std06_sci-ss_t3_2024": {"drop": [96]},
+    "ta_std07_sci-ss_t2_2024": {"drop": [108]},
+    "ta_std08_sci_2024": {"drop": [152]},  # Unit-13 OCR'd as 138 on some pages
+    "ta_std08_ss_2025": {"drop": [153]},
+    "ta_std09_ss_2025": {"drop": [295, 298]},
+    "ta_std09_sci_2024": {"starts": [5, 18, 30, 43, 56, 70, 84, 96, 107, 118, 130, 143, 153, 167, 177, 191, 206, 217,
+                                     234, 241, 256, 268, 286, 303, 317]},  # slugs OCR'd as 13/18, O6, BlO
+}
+TAMIL_ONLY_TITLES = {
+    "ta_std10_sci_2024": ("science", ["Laws of Motion", "Optics", "Thermal Physics", "Electricity", "Acoustics",
+        "Nuclear Physics", "Atoms and Molecules", "Periodic Classification of Elements", "Solutions",
+        "Types of Chemical Reactions", "Carbon and its Compounds", "Plant Anatomy and Plant Physiology",
+        "Structural Organisation of Animals", "Transportation in Plants and Circulation in Animals", "Nervous System",
+        "Plant and Animal Hormones", "Reproduction in Plants and Animals", "Heredity", "Origin and Evolution of Life",
+        "Breeding and Biotechnology", "Health and Diseases", "Environmental Management", "Visual Communication"]),
+}
+
+
+def tamil_units(units: list, book_id: str) -> list:
+    """A Tamil Sci/SS book's units after TAMIL_FIX: [(start, end)]."""
+    mine = [u for u in units if u["bookId"] == book_id and u["kind"] == "unit"]
+    if not mine:
+        return []
+    fix = TAMIL_FIX.get(book_id, {})
+    starts = fix.get("starts") or sorted(set(u["pageStart"] for u in mine) - set(fix.get("drop", [])) | set(fix.get("add", [])))
+    last = max(u["pageEnd"] for u in mine)
+    return [(a, (starts[i + 1] - 1) if i + 1 < len(starts) else last) for i, a in enumerate(starts)]
 
 
 def clean_title(t: str) -> str:
@@ -171,7 +203,7 @@ def main(content: Path) -> None:
     units = json.loads((content / "silver/textbooks/units.json").read_text(encoding="utf-8"))
     out, unused = [], set(OVERRIDES)
     # English-medium units in order, per (class, term, part), for the Tamil-medium units to mirror
-    english, tamil_n, page_cache, mirrored = {}, {}, {}, {}
+    tamil_n, page_cache = {}, {}
     for u in sorted(units, key=lambda u: books[u["bookId"]]["medium"] != "english"):
         key = f"{u['bookId']}:{u['seq']}"
         o = OVERRIDES.get(key, {})
@@ -188,13 +220,7 @@ def main(content: Path) -> None:
             title, topics = tamil_reader(u, page_cache[u["bookId"]], tamil_n[u["bookId"]])
             title, topics = o.get("title", title), o.get("topics", topics)
         elif b["medium"] == "tamil":
-            k = mirror_key(u, b, part)
-            i = mirrored.get(k, 0)
-            mirrored[k] = i + 1
-            twins = english.get(k, [])
-            if i >= len(twins):
-                sys.exit(f"{key}: no English-medium unit to mirror at {k} #{i + 1} ({len(twins)} there)")
-            title, topics = o.get("title", twins[i]["title"]), o.get("topics", [t[6:] for t in twins[i]["topicIds"]])
+            continue  # Science / Social Science: mirrored book by book below
         else:
             title = o.get("title") or clean_title(u["titleGuess"])
             if not part or not title:
@@ -206,13 +232,31 @@ def main(content: Path) -> None:
             sys.exit(f"{key}: unknown topics {bad}")
         out.append({"id": key.replace(":", "_u"), "bookId": u["bookId"], "class": b["class"], "medium": b["medium"], "part": part,
                     "title": title, "pageStart": u["pageStart"], "pageEnd": u["pageEnd"], "topicIds": topics})
-        if b["medium"] == "english":
-            english.setdefault(mirror_key(u, b, part), []).append(out[-1])
     if unused:
         sys.exit(f"overrides for units that don't exist: {sorted(unused)}")
-    short = {k: (len(v), mirrored.get(k, 0)) for k, v in english.items() if k in mirrored and mirrored[k] != len(v)}
-    if short:
-        sys.exit(f"Tamil-medium unit counts differ from English-medium (class, term, part): (English, Tamil) {short}")
+    unused_fix = set(TAMIL_FIX) | set(TAMIL_ONLY_TITLES)
+    for bid, b in books.items():
+        if b["medium"] != "tamil" or b["subjects"] == ["tamil"]:
+            continue
+        spans = tamil_units(units, bid)
+        unused_fix.discard(bid)
+        if bid in TAMIL_ONLY_TITLES:
+            part, titles = TAMIL_ONLY_TITLES[bid]
+            twins = [{"part": part, "title": t, "topicIds": [f"ccse4.{x}" for x in next(tp for rx, tp in RULES[part] if re.search(rx, t, re.I))]}
+                     for t in titles]
+        else:
+            twin = next((e for e in books.values() if e["medium"] == "english" and (e["class"], e["term"], e["subjects"]) ==
+                         (b["class"], b["term"], b["subjects"])), None)
+            if twin is None:
+                sys.exit(f"{bid}: no English-medium twin and no TAMIL_ONLY_TITLES")
+            twins = [x for x in out if x["bookId"] == twin["id"]]
+        if len(twins) != len(spans):
+            sys.exit(f"{bid}: {len(spans)} units after TAMIL_FIX, its English twin has {len(twins)}")
+        for i, ((a, z), t) in enumerate(zip(spans, twins), 1):
+            out.append({"id": f"{bid}_m{i}", "bookId": bid, "class": b["class"], "medium": "tamil", "part": t["part"],
+                        "title": t["title"], "pageStart": a, "pageEnd": z, "topicIds": t["topicIds"]})
+    if unused_fix:
+        sys.exit(f"TAMIL_FIX / TAMIL_ONLY_TITLES for books that don't exist: {sorted(unused_fix)}")
     out.sort(key=lambda u: (u["bookId"], u["pageStart"]))
     dest = content / "gold/textbooks/ccse4_units.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
