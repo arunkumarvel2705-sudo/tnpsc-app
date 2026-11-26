@@ -81,11 +81,21 @@ def merge(content: Path, path_id: str, version: str) -> None:
         if secs:
             part["paper"] = {**part["paper"], "rankingExcludedSections": sorted(secs)}
 
+    # Tag confidence from the tagging scripts (gold/tags/<path>_*.json): the app's tag review screen asks AK
+    # about tags below 0.8. A tag counts only if it still names the question's topic.
+    confidence = {}
+    for f in sorted((content / "gold/tags").glob(f"{path_id}_*.json")):
+        for t in read(f):
+            confidence[(t["questionId"].rsplit("_", 1)[0], t["n"])] = (t["topicId"], t["tagConfidence"])
+
     questions, seen, problems = [], set(), []
     for part in parts:
         pid = part["paper"]["id"]
         for q in part["questions"]:
             q = {**q, "paperId": pid}
+            tag = confidence.get((pid, q["n"]))
+            if tag and tag[0] == q.get("topicId"):
+                q["tagConfidence"] = tag[1]
             if q["id"] in seen:
                 problems.append(f"duplicate id {q['id']}")
             seen.add(q["id"])

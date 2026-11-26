@@ -1,5 +1,5 @@
 // Read-only helpers over the content bundle.
-import type { ContentBundle, Question } from "./types";
+import type { ContentBundle, LearningEvent, Question, TagReviewed } from "./types";
 
 /** The key mistakes are tracked under: concept if tagged, else topic, else the question itself. */
 export function conceptKey(q: Question): string {
@@ -113,4 +113,49 @@ export function topicIndex(bundle: ContentBundle, pathExam?: string): TopicInfo[
       unitWeight: unitWeights.get(t.unitId) ?? 0,
     }))
     .sort((a, b) => (a.topicId < b.topicId ? -1 : 1));
+}
+
+/** Tags the tagger was less sure of than this wait for AK's review. */
+export const TAG_REVIEW_BELOW = 0.8;
+
+/** AK's latest tag review per question, in log order. */
+export function tagReviews(log: LearningEvent[]): Map<string, TagReviewed> {
+  const m = new Map<string, TagReviewed>();
+  for (const e of log) if (e.type === "tagReview") m.set(e.questionId, e);
+  return m;
+}
+
+/**
+ * The bundle with AK's tag reviews applied, so a corrected topic counts at once (planner, ranking, skill
+ * map) without waiting for the pipeline. A changed tag moves the question to the new topic and its unit;
+ * every reviewed question is marked tagReviewed. A review naming a topic the bundle doesn't have is
+ * ignored. Returns the input unchanged when there is nothing to apply.
+ */
+export function applyTagReviews(bundle: ContentBundle, log: LearningEvent[]): ContentBundle {
+  const reviews = tagReviews(log);
+  if (!reviews.size) return bundle;
+  const unitOf = new Map((bundle.topics ?? []).map((t) => [t.id, t.unitId]));
+  let changed = false;
+  const questions = bundle.questions.map((q) => {
+    const r = reviews.get(q.id);
+    const unitId = r ? unitOf.get(r.topicId) : undefined;
+    if (!r || !unitId) return q;
+    changed = true;
+    return { ...q, topicId: r.topicId, unitId, tagReviewed: r.verdict };
+  });
+  return changed ? { ...bundle, questions } : bundle;
+}
+
+/**
+ * Questions whose tag waits for review: servable, tagged below TAG_REVIEW_BELOW, not reviewed yet. Sections
+ * that count for topic ranking come first (their tags move the planner most), then newest paper, then number.
+ */
+export function tagReviewQueue(bundle: ContentBundle): string[] {
+  const order = new Map(bundle.papers.map((p, i) => [p.id, i]));
+  const excluded = new Map(bundle.papers.map((p) => [p.id, new Set(p.rankingExcludedSections ?? [])]));
+  return servableQuestions(bundle)
+    .filter((q) => q.tagConfidence !== undefined && q.tagConfidence < TAG_REVIEW_BELOW && !q.tagReviewed)
+    .map((q) => ({ q, rank: excluded.get(q.paperId)?.has(q.section) ? 1 : 0, paper: order.get(q.paperId) ?? 99 }))
+    .sort((a, b) => a.rank - b.rank || a.paper - b.paper || a.q.n - b.q.n)
+    .map((x) => x.q.id);
 }

@@ -26,6 +26,8 @@ export interface Question {
   conceptId?: string; // finest tag; when absent the topic stands in for the concept (see conceptKey)
   topicId?: string;
   unitId?: string;
+  tagConfidence?: number; // how sure the tagger was of topicId (0-1); below TAG_REVIEW_BELOW it waits for AK's review
+  tagReviewed?: TagVerdict; // set in the app from AK's TagReviewed events (content.applyTagReviews)
   source: { exam: string; year: number; paper: string; qNo: number; pdfRef: string; page: number };
 }
 
@@ -76,4 +78,14 @@ export interface ErrorTagged extends EventBase {
   reason: ErrorReason;
 }
 
-export type LearningEvent = AnswerGiven | ErrorTagged;
+/** AK's check of a question's topic tag: right as it is, moved to another topic, or no syllabus topic fits. */
+export type TagVerdict = "confirm" | "change" | "nofit";
+
+export interface TagReviewed extends EventBase {
+  type: "tagReview";
+  questionId: string;
+  verdict: TagVerdict;
+  topicId: string; // the question's topic after the review (the same topic for confirm and nofit)
+}
+
+export type LearningEvent = AnswerGiven | ErrorTagged | TagReviewed;

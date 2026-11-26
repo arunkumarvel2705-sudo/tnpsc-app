@@ -1,11 +1,11 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { sectionQuestionIds } from "../core/content";
+import { applyTagReviews, sectionQuestionIds, tagReviewQueue } from "../core/content";
 import { computeState } from "../core/engine";
 import { MOCK_SECONDS, mockHistory, mockPaperChoices, paperQuestionIds } from "../core/mock";
 import { buildLog, validateEvent } from "../core/events";
 import { localDay } from "../core/time";
-import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question } from "../core/types";
+import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question, TagReviewed } from "../core/types";
 import { AuthError, fetchBundle, pdfLink, pushEvents } from "../sync/github";
 import { store } from "../sync/store";
 import type { GsLang } from "./format";
@@ -16,6 +16,7 @@ import { MockRunner } from "./screens/MockRunner";
 import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
+import { TagReview } from "./screens/TagReview";
 import { Today } from "./screens/Today";
 import { newSession, progressKey, type Session, type SessionKind } from "./session";
 
@@ -26,7 +27,8 @@ type View =
   | { name: "session" }
   | { name: "close"; session: Session }
   | { name: "mock" }
-  | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number };
+  | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number }
+  | { name: "tags" };
 
 /** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
 function readLog(): LearningEvent[] {
@@ -35,8 +37,10 @@ function readLog(): LearningEvent[] {
 
 export default function App() {
   const [token, setToken] = useState(store.token());
-  const [bundle, setBundle] = useState<ContentBundle | null>(store.bundle());
+  const [rawBundle, setBundle] = useState<ContentBundle | null>(store.bundle());
   const [log, setLog] = useState<LearningEvent[]>(readLog);
+  // AK's tag reviews count at once: every screen sees the bundle with them applied.
+  const bundle = useMemo(() => (rawBundle ? applyTagReviews(rawBundle, log) : null), [rawBundle, log]);
   const [tab, setTab] = useState<Tab>("today");
   // A mock still running when the app opens (killed by the phone, Back pressed) goes straight back to it.
   const [view, setView] = useState<View>(() => {
@@ -164,6 +168,10 @@ export default function App() {
   const openScan = async (pdfRef: string, page: number) => {
     try { window.open(`${await pdfLink(token, pdfRef)}#page=${page}`, "_blank"); } catch (e) { alert((e as Error).message); }
   };
+  const reviewTag = (questionId: string, verdict: TagReviewed["verdict"], topicId: string) => record({
+    type: "tagReview", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at: new Date().toISOString(), schemaVersion: 1,
+    sessionId: "tags", questionId, verdict, topicId,
+  });
   const tag = (answerEventId: string, questionId: string, reason: ErrorReason) => record({
     type: "errorTag", eventId: crypto.randomUUID(), deviceId: store.deviceId(), at: new Date().toISOString(), schemaVersion: 1,
     sessionId: view.name === "close" ? view.session.id : "tag", answerEventId, questionId, reason,
@@ -179,6 +187,9 @@ export default function App() {
   if (view.name === "mockReport")
     return <MockReport bundle={bundle} log={log} sessionId={view.sessionId} paperId={view.paperId} timeUsedMs={view.timeUsedMs}
       onPractise={(title, ids) => start("quick", title, ids)} onDone={() => setView({ name: "tabs" })} />;
+  if (view.name === "tags")
+    return <TagReview bundle={bundle} queue={tagReviewQueue(bundle)} gsLang={gsLang} onGsLang={setGsLang} onReview={reviewTag}
+      onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "close")
     return <SessionClose session={view.session} bundle={bundle} log={log} onTag={tag} onDone={() => { setView({ name: "tabs" }); setTab("today"); }} />;
 
@@ -213,6 +224,7 @@ export default function App() {
       {tab === "progress" && (
         <>
           <Progress state={state} bundle={bundle} log={log} today={today} onPractise={(title, ids) => start("quick", title, ids)} />
+          <TagReviewCard left={tagReviewQueue(bundle).length} onOpen={() => setView({ name: "tags" })} />
           <footer className="settings muted small">
             <span>Content {bundle.version}</span>
             {sync.state === "error" && <span className="error">Sync failed: {sync.msg}</span>}
@@ -323,5 +335,17 @@ function Setup({ onReady }: { onReady: (token: string, bundle: ContentBundle) =>
         {err && <p className="error">{err}</p>}
       </article>
     </main>
+  );
+}
+
+/** Entry to the tag review: how many topic tags still wait for AK's check. */
+function TagReviewCard({ left, onOpen }: { left: number; onOpen: () => void }) {
+  if (!left) return null;
+  return (
+    <section className="card">
+      <p><b>Topic tags to check: {left}</b></p>
+      <p className="muted small">The tagger was unsure of these. Each one you confirm or fix improves what the planner picks.</p>
+      <button onClick={onOpen}>Review tags</button>
+    </section>
   );
 }
