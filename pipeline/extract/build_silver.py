@@ -6,7 +6,8 @@ Inputs (a reading directory, kept outside both repos while a paper is being read
   reads/b_ta.jsonl   Part B Tamil text, same shape (optional: older papers may be English-only)
   key.json           final key: {"1": "A", "28": "A/B", "63": "ALL", ...}
   pages.json         question number -> page of the question-paper PDF
-  paper.json         paper metadata: id, exam, year, qbCode, date, title, qpRef, keyRef, keySource
+  paper.json         paper metadata: id, exam, year, qbCode, date, title, qpRef, keyRef, keySource;
+                     optional qpRefs {section: pdf} when Part A and Part B are separate booklets (2019 and older)
   key_revisions.json optional: {"119": "why"} for questions where the answer marked on the question paper
                      differs from the final key (TNPSC revised it). Each one is checked, kept as keyRevised.
 
@@ -76,7 +77,10 @@ def main(reading: Path, content: Path) -> None:
     for n in range(1, 201):
         k = key[str(n)]
         accepted = accepted_of(k)
-        q: dict = {"n": n, "section": "tamil" if n <= 100 else "gs_apt", "page": pages[n]}
+        section = "tamil" if n <= 100 else "gs_apt"
+        q: dict = {"n": n, "section": section, "page": pages[n]}
+        if paper.get("qpRefs"):
+            q["pdfRef"] = paper["qpRefs"][section]  # page numbers are within this booklet
         readings = [part_a[n]] if n <= 100 else [b_en[n]] + ([b_ta[n]] if b_ta else [])
         for r in readings:
             matches = accepted == "ALL" or r["tick"] in accepted
