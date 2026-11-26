@@ -68,3 +68,57 @@ describe("topicIndex with two papers in one bundle", () => {
     expect(t.get("T.old")).toMatchObject({ papersAsked: 1, papersTotal: 2 });
   });
 });
+
+describe("topicIndex with old-pattern sections left out of ranking", () => {
+  // AK's case: three Group 4 papers; the 2024 and 2022 Tamil parts were set on the older syllabus.
+  const threePapers = (excluded: Question["section"][] | undefined): ContentBundle => ({
+    version: "t", builtAt: "2026-11-26T00:00:00Z",
+    papers: [
+      { id: "ccse4_2025", title: "Group 4 2025", date: "2025-07-12", sections: [] },
+      { id: "ccse4_2024", title: "Group 4 2024", date: "2024-06-09", sections: [], rankingExcludedSections: excluded },
+      { id: "ccse4_2022", title: "Group 4 2022", date: "2022-07-24", sections: [], rankingExcludedSections: excluded },
+    ],
+    units: [{ id: "U", nameEn: "U", nameTa: null, questions: 0 }],
+    questions: [
+      q("ccse4_2025_q001", "ccse4_2025", 2025, "tamil", "T.ta_all"),
+      q("ccse4_2024_q001", "ccse4_2024", 2024, "tamil", "T.ta_all"),
+      q("ccse4_2022_q001", "ccse4_2022", 2022, "tamil", "T.ta_all"),
+      q("ccse4_2024_q002", "ccse4_2024", 2024, "tamil", "T.ta_old"), // only in old-pattern Tamil
+      q("ccse4_2022_q002", "ccse4_2022", 2022, "tamil", "T.ta_old"),
+      q("ccse4_2025_q101", "ccse4_2025", 2025, "gs_apt", "T.gs"),
+      q("ccse4_2024_q101", "ccse4_2024", 2024, "gs_apt", "T.gs"),
+      q("ccse4_2022_q101", "ccse4_2022", 2022, "gs_apt", "T.gs"),
+    ],
+  });
+
+  it("counts Tamil only from 2025 (1 of 1) and General Studies from all three papers (3 of 3)", () => {
+    const t = new Map(topicIndex(threePapers(["tamil"]), "CCSE-IV").map((x) => [x.topicId, x]));
+    expect(t.get("T.ta_all")).toMatchObject({ papersAsked: 1, papersTotal: 1 });
+    expect(t.get("T.gs")).toMatchObject({ papersAsked: 3, papersTotal: 3 });
+  });
+
+  it("keeps a topic seen only in excluded sections, at 0 of the papers that count", () => {
+    const t = new Map(topicIndex(threePapers(["tamil"]), "CCSE-IV").map((x) => [x.topicId, x]));
+    expect(t.get("T.ta_old")).toMatchObject({ papersAsked: 0, papersTotal: 1, exams: ["CCSE-IV"] });
+  });
+
+  it("gives 0 of 0 when no counted paper ranks the section", () => {
+    const b = threePapers(["tamil"]);
+    const onlyOld = { ...b, papers: b.papers.slice(1), questions: b.questions.filter((x) => x.paperId !== "ccse4_2025") };
+    const t = new Map(topicIndex(onlyOld, "CCSE-IV").map((x) => [x.topicId, x]));
+    expect(t.get("T.ta_all")).toMatchObject({ papersAsked: 0, papersTotal: 0 });
+    expect(t.get("T.gs")).toMatchObject({ papersAsked: 2, papersTotal: 2 });
+  });
+
+  it("without the field (or with it empty) every paper counts in full, as before", () => {
+    const expected = [
+      { topicId: "T.gs", papersAsked: 3, papersTotal: 3 },
+      { topicId: "T.ta_all", papersAsked: 3, papersTotal: 3 },
+      { topicId: "T.ta_old", papersAsked: 2, papersTotal: 3 },
+    ];
+    const pick = (b: ContentBundle) => topicIndex(b, "CCSE-IV").map(({ topicId, papersAsked, papersTotal }) => ({ topicId, papersAsked, papersTotal }));
+    expect(pick(threePapers(undefined))).toEqual(expected);
+    expect(pick(threePapers([]))).toEqual(expected);
+    expect(topicIndex(threePapers(undefined))).toEqual(topicIndex(threePapers([])));
+  });
+});

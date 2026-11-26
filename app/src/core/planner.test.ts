@@ -390,3 +390,22 @@ describe("AT-C2: deterministic replay", () => {
     expect(first.date).toBe(TODAY);
   });
 });
+
+describe("topics no counted paper ranks (papersTotal 0)", () => {
+  it("score 0, never the focus, no NaN anywhere", () => {
+    const plan = planDay({
+      today: TODAY, pathExam: "CCSE-IV",
+      topics: [topic("T.old", "U1", 0, 0), topic("T.ok", "U2", 1, 2)],
+      questions: [q("o1", "T.old", "U1"), q("k1", "T.ok", "U2")],
+      answers: [], skills: skillsOf(skill("U1", "weak"), skill("U2", "weak")), mistakes: new Map(), cards: new Map(),
+    });
+    expect(plan.focus?.topicId).toBe("T.ok");
+    expect(Number.isFinite(plan.focus?.score)).toBe(true);
+    const alone = planDay({
+      today: TODAY, pathExam: "CCSE-IV", topics: [topic("T.old", "U1", 0, 0)], questions: [q("o1", "T.old", "U1")],
+      answers: [], skills: skillsOf(skill("U1", "weak")), mistakes: new Map(), cards: new Map(),
+    });
+    expect(alone.focus).toBeNull();
+    expect(alone.practiceSet).toEqual([]);
+  });
+});

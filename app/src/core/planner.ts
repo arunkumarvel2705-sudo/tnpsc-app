@@ -5,7 +5,8 @@
 // Focus topic: among topics with at least one learnable question,
 //   weakness  = skills.get(unitId)?.weakness ?? WEAKNESS.insufficient
 //   frequency = papersAsked / papersTotal (0 when papersTotal is 0) — content.topicIndex counts only the
-//               learner's path papers, the most recent 10
+//               learner's path papers, the most recent 10, and leaves out old-pattern sections
+//               (Paper.rankingExcludedSections), so papersTotal can be 0
 //   relevance = exams includes pathExam ? 1 : 0
 //   score     = weakness * frequency * relevance
 // A topic is skipped when its mode has nothing to serve (diagnostic: no never-answered learnable question in
