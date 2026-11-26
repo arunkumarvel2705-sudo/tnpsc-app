@@ -16,6 +16,7 @@ import { MockRunner } from "./screens/MockRunner";
 import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
+import { Syllabus } from "./screens/Syllabus";
 import { TagReview } from "./screens/TagReview";
 import { Today } from "./screens/Today";
 import { newSession, progressKey, type Session, type SessionKind } from "./session";
@@ -28,7 +29,8 @@ type View =
   | { name: "close"; session: Session }
   | { name: "mock" }
   | { name: "mockReport"; sessionId: string; paperId: string; timeUsedMs: number }
-  | { name: "tags" };
+  | { name: "tags" }
+  | { name: "syllabus" };
 
 /** Stored events, validated and ordered. Anything that fails validation is left out, never thrown. */
 function readLog(): LearningEvent[] {
@@ -187,6 +189,9 @@ export default function App() {
   if (view.name === "mockReport")
     return <MockReport bundle={bundle} log={log} sessionId={view.sessionId} paperId={view.paperId} timeUsedMs={view.timeUsedMs}
       onPractise={(title, ids) => start("quick", title, ids)} onDone={() => setView({ name: "tabs" })} />;
+  if (view.name === "syllabus")
+    return <Syllabus bundle={bundle} answers={answers} pathExam={PATH_EXAM} onPractise={(title, ids) => start("quick", title, ids)}
+      onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "tags")
     return <TagReview bundle={bundle} queue={tagReviewQueue(bundle)} gsLang={gsLang} onGsLang={setGsLang} onReview={reviewTag}
       onExit={() => setView({ name: "tabs" })} />;
@@ -217,7 +222,14 @@ export default function App() {
           {mock ? (
             <p className="muted small">Paper practice is hidden while a mock is running, so the mock stays under exam conditions.</p>
           ) : (
-            <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
+            <>
+              <section className="card">
+                <p><b>Syllabus</b></p>
+                <p className="muted small">Every unit and topic, how often it is asked, and its past questions to practise.</p>
+                <button onClick={() => setView({ name: "syllabus" })}>Browse the syllabus</button>
+              </section>
+              <Papers bundle={bundle} answers={answers} progress={store.progress()} onStart={startPaper} />
+            </>
           )}
         </>
       )}
