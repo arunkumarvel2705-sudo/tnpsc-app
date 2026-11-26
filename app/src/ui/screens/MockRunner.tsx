@@ -37,7 +37,8 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
 
   const byId = useMemo(() => new Map(bundle.questions.map((q) => [q.id, q])), [bundle]);
   const sectionTitle = useMemo(() => {
-    const paper = bundle.papers.find((p) => p.id === draft.paperId) ?? bundle.papers[0];
+    // The draft's own paper only: another paper's section titles would be wrong; the defaults below cover a missing one.
+    const paper = bundle.papers.find((p) => p.id === draft.paperId);
     const titles = new Map((paper?.sections ?? []).map((s) => [s.id, s.title]));
     return (s: Question["section"] | undefined) => (s ? titles.get(s) ?? (s === "tamil" ? "Part A · Tamil" : "Part B") : "");
   }, [bundle, draft.paperId]);

@@ -6,7 +6,7 @@ import { confidenceLine, hmm, marksText, unattemptedUnits, unitRows, wrongIds } 
 function q(id: string, n: number, unitId: string, extra: Partial<Question> = {}): Question {
   return {
     id, n, section: unitId.includes(".ta.") ? "tamil" : "gs_apt", unitId, accepted: ["A"], keyStatus: "final", status: "active",
-    source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 }, ...extra,
+    paperId: "p1", source: { exam: "syn", year: 2025, paper: "p1", qNo: n, pdfRef: "x.pdf", page: 1 }, ...extra,
   };
 }
 const bundle: ContentBundle = {
@@ -37,6 +37,16 @@ describe("wrongIds", () => {
   it("agrees with the report's wrong count", () => {
     const log = [ans("g1", "E"), ans("t2", "B"), ans("t1", "A"), ans("g2", "C")];
     expect(wrongIds(log, bundle, "m1", "p1").length).toBe(mockReport(log, bundle, "m1", "p1", 0).wrong);
+  });
+  it("stays inside the mock's paper when the bundle holds two", () => {
+    const two: ContentBundle = {
+      ...bundle,
+      papers: [{ id: "p0", title: "Newer", date: "2026-01-01", sections: [] }, ...bundle.papers],
+      questions: [q("n1", 1, "ccse4.ta.u1", { paperId: "p0" }), ...bundle.questions],
+    };
+    const log = [ans("n1", "B"), ans("t2", "B")];
+    expect(wrongIds(log, two, "m1", "p1")).toEqual(["t2"]);
+    expect(wrongIds(log, two, "m1", "p0")).toEqual(["n1"]);
   });
 });
 

@@ -9,7 +9,8 @@ export interface QuestionText {
 }
 
 export interface Question {
-  id: string;
+  id: string; // globally unique across papers, e.g. ccse4_2024_q101
+  paperId: string; // one of ContentBundle.papers[].id; a bundle holds every paper of one exam path
   n: number;
   section: "tamil" | "gs_apt";
   en?: QuestionText;
@@ -37,7 +38,7 @@ export interface Paper {
 export interface ContentBundle {
   version: string;
   builtAt: string;
-  papers: Paper[];
+  papers: Paper[]; // newest first
   units: { id: string; nameEn: string; nameTa: string | null; questions: number }[];
   topics?: { id: string; unitId: string; nameEn: string; nameTa: string | null }[]; // optional until the pipeline emits it
   questions: Question[];

@@ -8,7 +8,7 @@ import type { AnswerGiven, ContentBundle, LearningEvent, Option, Question } from
 
 const mkQ = (id: string, unitId: string, topicId: string, extra: Partial<Question> = {}): Question => ({
   id, n: 1, section: "gs_apt", accepted: ["A"], keyStatus: "final", status: "active", unitId, topicId,
-  source: { exam: "CCSE-IV", year: 2025, paper: "P1", qNo: 1, pdfRef: "x.pdf", page: 1 },
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P1", qNo: 1, pdfRef: "x.pdf", page: 1 },
   ...extra,
 });
 const mkBundle = (questions: Question[], units: string[]): ContentBundle => ({

@@ -17,7 +17,7 @@ const q = (
 ): Question => ({
   id, n: 1, section: "gs_apt", accepted: opts.accepted ?? ["A"], keyStatus: "final", status: opts.status ?? "active",
   conceptId: opts.conceptId, topicId, unitId,
-  source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
 });
 
 let seq = 0;

@@ -1,7 +1,8 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { sectionQuestionIds } from "../core/content";
 import { computeState } from "../core/engine";
-import { MOCK_SECONDS, mockHistory, paperQuestionIds } from "../core/mock";
+import { MOCK_SECONDS, mockHistory, mockPaperChoices, paperQuestionIds } from "../core/mock";
 import { buildLog, validateEvent } from "../core/events";
 import { localDay } from "../core/time";
 import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question } from "../core/types";
@@ -15,7 +16,7 @@ import { Papers } from "./screens/Papers";
 import { Progress } from "./screens/Progress";
 import { SessionClose } from "./screens/SessionClose";
 import { Today } from "./screens/Today";
-import { newSession, type Session, type SessionKind } from "./session";
+import { newSession, progressKey, type Session, type SessionKind } from "./session";
 
 const PATH_EXAM = "CCSE-IV"; // v1 path: Group 4
 type Tab = "today" | "practice" | "progress";
@@ -142,10 +143,12 @@ export default function App() {
   const start = (kind: Exclude<SessionKind, "paper">, title: string, ids: string[]) => {
     if (ids.length) begin(newSession(kind, title, ids, new Date().toISOString(), crypto.randomUUID()));
   };
-  const startPaper = (section: Question["section"], title: string) => {
-    const ids = bundle.questions.filter((q) => q.section === section).map((q) => q.id);
-    const at = store.progress()[section] ?? 0;
-    const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), section);
+  const startPaper = (paperId: string, section: Question["section"], title: string) => {
+    const ids = sectionQuestionIds(bundle, paperId, section);
+    if (!ids.length) return;
+    const key = progressKey(paperId, section);
+    const at = store.progress()[key] ?? 0;
+    const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), key);
     begin({ ...s, index: at >= ids.length ? 0 : at });
   };
   const advance = (n: number) => {
@@ -189,13 +192,14 @@ export default function App() {
       {tab === "practice" && (
         <>
           <MockCard bundle={bundle} log={log} draft={mock}
-            onStart={() => {
-              const paperId = bundle.papers[0]?.id ?? "paper";
-              const d = newDraft(crypto.randomUUID(), paperId, paperQuestionIds(bundle, paperId), new Date().toISOString());
+            onStart={(paperId) => {
+              const ids = paperQuestionIds(bundle, paperId);
+              if (!ids.length) return;
+              const d = newDraft(crypto.randomUUID(), paperId, ids, new Date().toISOString());
               store.setMock(d); setMock(d); setView({ name: "mock" });
             }}
             onContinue={() => setView({ name: "mock" })}
-            onOpen={(sessionId) => setView({ name: "mockReport", sessionId, paperId: bundle.papers[0]?.id ?? "paper", timeUsedMs: 0 })} />
+            onOpen={(sessionId, paperId) => setView({ name: "mockReport", sessionId, paperId, timeUsedMs: 0 })} />
           {mock ? (
             <p className="muted small">Paper practice is hidden while a mock is running, so the mock stays under exam conditions.</p>
           ) : (
@@ -223,33 +227,70 @@ export default function App() {
   );
 }
 
+/**
+ * The full-mock card. A bundle can hold several papers (newest first): each is its own 3-hour mock, so
+ * with more than one the learner picks which to sit, seeing each paper's size and last score. With one
+ * paper the card looks as it always has. A draft in progress always continues its own paper.
+ */
 function MockCard({ bundle, log, draft, onStart, onContinue, onOpen }: {
   bundle: ContentBundle; log: LearningEvent[]; draft: MockDraft | null;
-  onStart: () => void; onContinue: () => void; onOpen: (sessionId: string) => void;
+  onStart: (paperId: string) => void; onContinue: () => void; onOpen: (sessionId: string, paperId: string) => void;
 }) {
   const history = useMemo(() => mockHistory(log, bundle), [log, bundle]);
+  const choices = useMemo(() => mockPaperChoices(bundle, history), [bundle, history]);
+  const many = choices.length > 1;
+  const titleOf = (paperId: string) => choices.find((c) => c.paperId === paperId)?.title ?? paperId;
   const left = draft ? remainingMs(draft, Date.now()) : 0;
   const hhmm = (ms: number) => `${Math.floor(ms / 3600000)}h ${String(Math.floor((ms % 3600000) / 60000)).padStart(2, "0")}m`;
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  const confirmStart = (paperId: string) => {
+    const ask = many
+      ? `Start the ${titleOf(paperId)} mock now? The 3-hour timer runs even if you close the app.`
+      : "Start a 3-hour mock now? The timer runs even if you close the app.";
+    if (confirm(ask)) onStart(paperId);
+  };
   return (
     <article className="card">
-      <div className="card-head"><h3>Full mock</h3><span className="muted">{bundle.questions.length} questions · 3 hours</span></div>
+      <div className="card-head">
+        <h3>Full mock</h3>
+        <span className="muted">{many ? `${choices.length} papers · 3 hours each` : `${choices[0]?.questions ?? 0} questions · 3 hours`}</span>
+      </div>
       {draft ? (
         <>
-          <p className="muted small">In progress: {Object.keys(draft.answers).length} answered, {hhmm(left)} left. The clock keeps running.</p>
+          <p className="muted small">
+            In progress{many ? `: ${titleOf(draft.paperId)},` : ":"} {Object.keys(draft.answers).length} answered, {hhmm(left)} left. The clock keeps running.
+          </p>
           <button className="primary wide" onClick={onContinue}>Continue mock</button>
+        </>
+      ) : many ? (
+        <>
+          <p className="muted small">Pick a paper. Exam conditions: no answers shown until you submit. Best on a weekend with 3 free hours.</p>
+          <ul className="mock-papers">
+            {choices.map((c) => (
+              <li key={c.paperId}>
+                <div>
+                  <b>{c.title}</b>
+                  <span className="muted small">
+                    {c.questions} questions · {c.last ? `last ${c.last.marks} / ${c.last.maxMarks} on ${day(c.last.submittedAt)}` : "not taken yet"}
+                  </span>
+                </div>
+                <button className={c.last ? "" : "primary"} disabled={!c.questions} onClick={() => confirmStart(c.paperId)}>Start</button>
+              </li>
+            ))}
+          </ul>
         </>
       ) : (
         <>
           <p className="muted small">Exam conditions: no answers shown until you submit. Best on a weekend with 3 free hours.</p>
-          <button className="primary wide" onClick={() => { if (confirm("Start a 3-hour mock now? The timer runs even if you close the app.")) onStart(); }}>Start mock</button>
+          <button className="primary wide" disabled={!choices[0]?.questions} onClick={() => confirmStart(choices[0].paperId)}>Start mock</button>
         </>
       )}
       {history.length > 0 && (
         <ul className="mock-history">
           {history.map((h) => (
             <li key={h.sessionId}>
-              <button className="link" onClick={() => onOpen(h.sessionId)}>
-                {new Date(h.submittedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}: {h.marks} / {h.maxMarks}
+              <button className="link" onClick={() => onOpen(h.sessionId, h.paperId)}>
+                {day(h.submittedAt)}{many ? ` · ${titleOf(h.paperId)}` : ""}: {h.marks} / {h.maxMarks}
               </button>
             </li>
           ))}

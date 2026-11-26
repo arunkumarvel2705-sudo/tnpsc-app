@@ -6,6 +6,25 @@ export function conceptKey(q: Question): string {
   return q.conceptId ?? q.topicId ?? q.id;
 }
 
+/** A bundle as it may arrive: bundles cached before multi-paper content have no paperId on questions. */
+export type RawBundle = Omit<ContentBundle, "questions"> & { questions: (Omit<Question, "paperId"> & { paperId?: string })[] };
+
+/**
+ * Every bundle entering the app goes through here (fetched or read from the local cache). Bundles from
+ * before multi-paper content held exactly one paper per file, so a question with no paperId belongs to
+ * papers[0]. Returns the input unchanged when nothing is missing, so a normal bundle costs one scan.
+ */
+export function normalizeBundle(b: RawBundle): ContentBundle {
+  if (b.questions.every((q) => typeof q.paperId === "string")) return b as ContentBundle;
+  const fallback = b.papers[0]?.id ?? "";
+  return { ...b, questions: b.questions.map((q) => (typeof q.paperId === "string" ? q : { ...q, paperId: fallback })) as Question[] };
+}
+
+/** One section of one paper, in bundle (paper) order: what "work through a section" serves. */
+export function sectionQuestionIds(bundle: ContentBundle, paperId: string, section: Question["section"]): string[] {
+  return bundle.questions.filter((q) => q.paperId === paperId && q.section === section).map((q) => q.id);
+}
+
 export function indexQuestions(bundle: ContentBundle): Map<string, Question> {
   return new Map(bundle.questions.map((q) => [q.id, q]));
 }

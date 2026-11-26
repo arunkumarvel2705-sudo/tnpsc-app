@@ -5,7 +5,7 @@ import type { AnswerGiven, Question } from "./types";
 const q = (id: string, accepted: Question["accepted"], status: Question["status"] = "active"): Question => ({
   id, n: 1, section: "gs_apt", accepted, keyStatus: "final", status,
   en: { stem: "s", options: { A: "a", B: "b", C: "c", D: "d", E: "Answer not known" } },
-  source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
+  paperId: "P", source: { exam: "CCSE-IV", year: 2025, paper: "P", qNo: 1, pdfRef: "x.pdf", page: 1 },
 });
 let seq = 0;
 const ans = (questionId: string, chosen: AnswerGiven["chosen"], confidence: AnswerGiven["confidence"], at = `2026-11-22T10:00:${String(seq).padStart(2, "0")}Z`): AnswerGiven => ({

@@ -8,7 +8,7 @@ const EXAM = "CCSE-IV";
 const mkQ = (i: number, unit: string, topic: string, accepted: Question["accepted"] = ["A"], status: Question["status"] = "active"): Question => ({
   id: `q${String(i).padStart(3, "0")}`, n: i, section: "gs_apt", accepted, keyStatus: "final", status, unitId: unit, topicId: topic,
   en: { stem: `stem ${i}`, options: { A: "a", B: "b", C: "c", D: "d", E: "Answer not known" } },
-  source: { exam: EXAM, year: 2025, paper: "P1", qNo: i, pdfRef: "x.pdf", page: 1 },
+  paperId: "P1", source: { exam: EXAM, year: 2025, paper: "P1", qNo: i, pdfRef: "x.pdf", page: 1 },
 });
 
 function bundle(overrides: (q: Question) => Question = (q) => q): ContentBundle {
