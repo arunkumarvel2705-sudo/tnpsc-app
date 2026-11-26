@@ -11,6 +11,7 @@ Two steps, both deterministic (same inputs give byte-identical output, AT-P1):
       every gold/papers/<path-id>_*.json + gold/syllabus/<path-id>.json
     + config/paths/<path-id>.json (optional: rankingExcludedSections per paper)
     + gold/tags/reviews.json        (optional: AK's in-app tag reviews, from tagging/fold_reviews.py)
+    + gold/terms/<path-id>.json     (optional: Term Bridge pairs, from terms/build_terms.py)
     -> gold/bundles/<path-id>.json            what the app downloads (papers newest first)
 
 The merge refuses to write a bundle with duplicate question ids, untagged questions, or topics that are not
@@ -126,6 +127,14 @@ def merge(content: Path, path_id: str, version: str) -> None:
     bundle = {"version": version, "builtAt": version.split(".")[0], "papers": [p["paper"] for p in parts],
               "units": units, "questions": questions,  # units in syllabus order, as the official document lists them
               "topics": sorted(topics, key=lambda t: t["id"])}
+    terms_path = content / "gold/terms" / f"{path_id}.json"
+    if terms_path.exists():
+        terms = read(terms_path)
+        known = {q["id"] for q in questions}
+        bad = [t["en"] for t in terms if t["unitId"] not in nodes or not set(t["questionIds"]) <= known]
+        if bad:
+            sys.exit(f"Bundle not written: terms with unknown units or questions: {bad}")
+        bundle["terms"] = terms
     expected = sum(len(p["questions"]) for p in parts)
     if len(bundle["questions"]) != expected or [p["id"] for p in bundle["papers"]] != [p["paper"]["id"] for p in parts]:
         sys.exit(f"Bundle not written: {len(bundle['questions'])} questions assembled, {expected} expected")

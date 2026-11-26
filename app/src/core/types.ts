@@ -48,6 +48,15 @@ export interface ContentBundle {
   units: { id: string; nameEn: string; nameTa: string | null; questions: number }[];
   topics?: { id: string; unitId: string; nameEn: string; nameTa: string | null }[]; // optional until the pipeline emits it
   questions: Question[];
+  terms?: Term[]; // Term Bridge, optional until the pipeline emits it
+}
+
+/** One English-Tamil technical term pair (Term Bridge), with the past questions it appears in. */
+export interface Term {
+  en: string;
+  ta: string;
+  unitId: string;
+  questionIds: string[];
 }
 
 export interface EventBase {

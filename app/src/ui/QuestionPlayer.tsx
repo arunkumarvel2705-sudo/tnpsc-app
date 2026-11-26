@@ -6,6 +6,7 @@ import { effectiveConfidence, outcome } from "../core/scoring";
 import type { AnswerGiven, Confidence, ContentBundle, Option } from "../core/types";
 import { matchTable, questionLang, stemLines, switchLabel, type GsLang } from "./format";
 import type { Session } from "./session";
+import { termsForQuestion } from "./screens/terms.helpers";
 
 export function QuestionPlayer({ bundle, session, deviceId, gsLang, onGsLang, onAnswer, onAdvance, onExit, onOpenScan }: {
   bundle: ContentBundle;
@@ -124,6 +125,12 @@ export function QuestionPlayer({ bundle, session, deviceId, gsLang, onGsLang, on
             {q.accepted !== "ALL" && q.accepted.length > 1 ? " (more than one accepted)" : ""}
             {" · "}{q.source.paper} page {q.source.page}
           </p>
+          {termsForQuestion(bundle.terms, q.id).length > 0 && (
+            <div className="qterms small">
+              <b>Terms in this question</b>
+              <ul>{termsForQuestion(bundle.terms, q.id).map((t) => <li key={t.en + t.ta}><span>{t.en}</span><span lang="ta">{t.ta}</span></li>)}</ul>
+            </div>
+          )}
           <div className="row">
             <button onClick={() => onOpenScan(q.source.pdfRef, q.source.page)}>Open scan</button>
             <button className="primary" onClick={() => onAdvance(i + 1)}>{i + 1 >= total ? "Finish" : "Next"}</button>
