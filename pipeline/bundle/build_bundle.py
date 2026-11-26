@@ -10,6 +10,7 @@ Two steps, both deterministic (same inputs give byte-identical output, AT-P1):
   merge <content-repo> <path-id> <version>
       every gold/papers/<path-id>_*.json + gold/syllabus/<path-id>.json
     + config/paths/<path-id>.json (optional: rankingExcludedSections per paper)
+    + gold/tags/reviews.json        (optional: AK's in-app tag reviews, from tagging/fold_reviews.py)
     -> gold/bundles/<path-id>.json            what the app downloads (papers newest first)
 
 The merge refuses to write a bundle with duplicate question ids, untagged questions, or topics that are not
@@ -88,6 +89,10 @@ def merge(content: Path, path_id: str, version: str) -> None:
         for t in read(f):
             confidence[(t["questionId"].rsplit("_", 1)[0], t["n"])] = (t["topicId"], t["tagConfidence"])
 
+    # AK's in-app tag reviews, folded by tagging/fold_reviews.py (optional): the latest verdict per question.
+    rev_path = content / "gold/tags/reviews.json"
+    reviews = {r["questionId"]: r for r in read(rev_path)} if rev_path.exists() else {}
+
     questions, seen, problems = [], set(), []
     for part in parts:
         pid = part["paper"]["id"]
@@ -96,6 +101,13 @@ def merge(content: Path, path_id: str, version: str) -> None:
             tag = confidence.get((pid, q["n"]))
             if tag and tag[0] == q.get("topicId"):
                 q["tagConfidence"] = tag[1]
+            r = reviews.pop(q["id"], None)
+            if r:
+                node = nodes.get(r["topicId"])
+                if node is None or node["level"] != "topic":
+                    problems.append(f"{q['id']}: reviewed topic {r['topicId']} not in the syllabus graph")
+                else:
+                    q["topicId"], q["unitId"], q["tagReviewed"] = r["topicId"], node["parentId"], r["verdict"]
             if q["id"] in seen:
                 problems.append(f"duplicate id {q['id']}")
             seen.add(q["id"])
@@ -103,6 +115,7 @@ def merge(content: Path, path_id: str, version: str) -> None:
             if topic is None or topic["level"] != "topic" or topic["parentId"] != q.get("unitId"):
                 problems.append(f"{q['id']}: topic {q.get('topicId')} / unit {q.get('unitId')} not in the syllabus graph")
             questions.append(q)
+    problems += [f"review for unknown question {qid}" for qid in sorted(reviews)]
     if problems:
         sys.exit("Bundle not written:\n  " + "\n  ".join(problems))
 
