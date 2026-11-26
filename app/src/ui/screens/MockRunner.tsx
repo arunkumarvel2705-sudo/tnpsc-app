@@ -2,6 +2,7 @@
 // The 3-hour full mock under exam conditions (AT-U6): 200 questions, a 3:00:00 countdown, one question at
 // a time, options shaded like an OMR sheet, no correctness shown, auto-submit at zero.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isServable } from "../../core/content";
 import type { Confidence, Option, Question } from "../../core/types";
 import { remainingMs, type MockDraft } from "../mock";
 import { matchTable, stemLines } from "../format";
@@ -108,7 +109,11 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
   const total = draft.questionIds.length;
   const i = Math.min(Math.max(0, draft.index), total - 1);
   const qid = draft.questionIds[i];
-  const q = qid ? byId.get(qid) : undefined;
+  const found = qid ? byId.get(qid) : undefined;
+  // A mock started before the content marked a question as needing a figure can still hold it: it is not
+  // shown, and the report leaves it out (core/mock paperQuestionIds).
+  const hidden = found !== undefined && !isServable(found);
+  const q = hidden ? undefined : found;
   const c = counts(draft);
   const low = isLowTime(remaining);
   const last = i >= total - 1;
@@ -167,7 +172,10 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
               onPick={(o) => save(choose(latest.current, q.id, o))}
               onConfidence={(cf) => save(setConfidence(latest.current, q.id, cf))} />
           ) : (
-            <p className="card">This question is no longer in your content. Move on to the next one.</p>
+            <p className="card">
+              {hidden ? "This question needs a diagram the app can't show yet. It is left out of this mock; move on to the next one."
+                : "This question is no longer in your content. Move on to the next one."}
+            </p>
           )}
           {last && (
             <div className="mr-end">
