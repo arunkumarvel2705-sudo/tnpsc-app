@@ -79,6 +79,25 @@ describe("engine end to end", () => {
     expect([...after.plan.practiceSet, ...after.plan.quick]).not.toContain("q002");
   });
 
+  it("old answers to a question that now needs a figure: nothing crashes, and it never comes back", () => {
+    // q002 (wrong while sure) and q003 were answered before the bundle flagged them as needing a figure.
+    const hidden = bundle((q) => (q.id === "q002" || q.id === "q003" ? { ...q, figure: true } : q));
+    for (const day of ["2026-11-22", "2026-12-15", "2027-06-01"]) {
+      const s = computeState(history(), hidden, day, EXAM);
+      // Learning state keeps the history (cards, the open mistake) ...
+      expect(s.cards.has("q:q002")).toBe(true);
+      expect([...s.mistakes.values()].some((m) => m.wrongQuestionIds.includes("q002"))).toBe(true);
+      // ... but no plan, review or quick list ever serves them.
+      const served = [...s.plan.practiceSet, ...s.plan.review.questionIds, ...s.plan.quick];
+      expect(served).not.toContain("q002");
+      expect(served).not.toContain("q003");
+      expect(s.plan.review.cardIds).not.toContain("q:q002");
+      expect(s.plan.review.cardIds).not.toContain("q:q003");
+    }
+    // The other missed questions on the same concept still come back for their retest.
+    expect(computeState(history(), hidden, "2026-11-22", EXAM).plan.review.questionIds).toContain("q004");
+  });
+
   it("AT-C5: E never creates a misconception end to end", () => {
     const s = computeState(history(), bundle(), "2026-11-22", EXAM);
     const m18 = [...s.mistakes.values()].find((m) => m.wrongQuestionIds.includes("q018"))!;

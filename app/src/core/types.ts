@@ -22,6 +22,7 @@ export interface Question {
   status: "active" | "deleted";
   format?: "match";
   hasFigure?: boolean;
+  figure?: true; // needs a diagram from the PDF that the app cannot show yet: never served (content.isServable)
   conceptId?: string; // finest tag; when absent the topic stands in for the concept (see conceptKey)
   topicId?: string;
   unitId?: string;

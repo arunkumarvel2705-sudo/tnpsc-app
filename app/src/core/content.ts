@@ -20,9 +20,24 @@ export function normalizeBundle(b: RawBundle): ContentBundle {
   return { ...b, questions: b.questions.map((q) => (typeof q.paperId === "string" ? q : { ...q, paperId: fallback })) as Question[] };
 }
 
+/**
+ * Whether the app can put this question in front of the learner. A question that needs a diagram (figure)
+ * only describes it in words, which is not a fair question, so it stays hidden until the app can show
+ * figures. This is the one rule every selection goes through: planner sets, section walk-throughs, mocks,
+ * retests. Old answers to a hidden question stay in the log; they are just never asked for again.
+ */
+export function isServable(q: Question): boolean {
+  return q.figure !== true;
+}
+
+/** The bundle's questions the app can serve, in bundle order. */
+export function servableQuestions(bundle: ContentBundle): Question[] {
+  return bundle.questions.filter(isServable);
+}
+
 /** One section of one paper, in bundle (paper) order: what "work through a section" serves. */
 export function sectionQuestionIds(bundle: ContentBundle, paperId: string, section: Question["section"]): string[] {
-  return bundle.questions.filter((q) => q.paperId === paperId && q.section === section).map((q) => q.id);
+  return servableQuestions(bundle).filter((q) => q.paperId === paperId && q.section === section).map((q) => q.id);
 }
 
 export function indexQuestions(bundle: ContentBundle): Map<string, Question> {

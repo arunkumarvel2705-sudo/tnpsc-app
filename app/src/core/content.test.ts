@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBundle, sectionQuestionIds, topicIndex, type RawBundle } from "./content";
+import { isServable, normalizeBundle, sectionQuestionIds, servableQuestions, topicIndex, type RawBundle } from "./content";
 import type { ContentBundle, Question } from "./types";
 
 // Invented placeholder questions only: two papers of one exam path, newest first.
@@ -120,5 +120,27 @@ describe("topicIndex with old-pattern sections left out of ranking", () => {
     expect(pick(threePapers(undefined))).toEqual(expected);
     expect(pick(threePapers([]))).toEqual(expected);
     expect(topicIndex(threePapers(undefined))).toEqual(topicIndex(threePapers([])));
+  });
+});
+
+describe("questions that need a figure", () => {
+  const withFigure = (): ContentBundle => {
+    const b = twoPapers();
+    return { ...b, questions: b.questions.map((x) => (x.id === "ccse4_2024_q101" ? { ...x, figure: true as const } : x)) };
+  };
+
+  it("are not servable; everything else is", () => {
+    const b = withFigure();
+    expect(b.questions.filter((x) => !isServable(x)).map((x) => x.id)).toEqual(["ccse4_2024_q101"]);
+    expect(servableQuestions(b).map((x) => x.id)).toEqual(["ccse4_2024_q001", "ccse4_2024_q102", "ccse4_2023_q001", "ccse4_2023_q101"]);
+    expect(servableQuestions(twoPapers())).toEqual(twoPapers().questions);
+  });
+
+  it("are left out of a section walk-through", () => {
+    expect(sectionQuestionIds(withFigure(), "ccse4_2024", "gs_apt")).toEqual(["ccse4_2024_q102"]);
+  });
+
+  it("still count towards how often a topic is asked (ranking is about the exam, not the app)", () => {
+    expect(topicIndex(withFigure(), "CCSE-IV")).toEqual(topicIndex(twoPapers(), "CCSE-IV"));
   });
 });

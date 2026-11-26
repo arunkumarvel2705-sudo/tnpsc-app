@@ -1,7 +1,8 @@
 // core/planner — skill, mistake and card states + date -> DailyPlan.
 // Tests: AT-C9, AT-C10, AT-C11 and the rules below. (Revised after independent review, findings 1, 5, 7, 10.)
 //
-// Learnable questions: active and not keyed ALL. Confidence is read through scoring.effectiveConfidence.
+// Learnable questions: active, not keyed ALL, and servable (content.isServable: no figure the app can't show).
+// Confidence is read through scoring.effectiveConfidence.
 // Focus topic: among topics with at least one learnable question,
 //   weakness  = skills.get(unitId)?.weakness ?? WEAKNESS.insufficient
 //   frequency = papersAsked / papersTotal (0 when papersTotal is 0) — content.topicIndex counts only the
@@ -28,12 +29,13 @@
 //   practiceSet = focus picks then older picks; olderTopicQuestionIds = the older picks
 // Review, counted in questions (must fit MAX_REVIEW_MINUTES even after missed days, AT-C10):
 //   retests = open mistakes in stage logged with retestDay <= today, misconceptions first, then retestDay,
-//   then conceptId; each serves its active wrongQuestionIds. Then due cards (fsrs.dueCards order) whose
-//   question is not already queued. Total capped at floor(MAX_REVIEW_MINUTES * 60 / REVIEW_SECONDS_PER_ITEM)
+//   then conceptId; each serves its active, servable wrongQuestionIds. Then due cards (fsrs.dueCards order)
+//   whose question is not already queued; a question card whose question is deleted, missing or not
+//   servable never comes due (its state is kept, so it resumes if the question can be shown again). Total capped at floor(MAX_REVIEW_MINUTES * 60 / REVIEW_SECONDS_PER_ITEM)
 //   items; review.questionIds is the ordered list to serve; estMinutes = ceil(items * seconds / 60).
 // quick: up to QUICK_SIZE question ids — review.questionIds, then practiceSet order, de-duplicated.
 // Deterministic: no clock, no randomness; `today` is an IST day (core/time).
-import { conceptKey, type TopicInfo } from "./content";
+import { conceptKey, isServable, type TopicInfo } from "./content";
 import type { CardState } from "./fsrs";
 import type { MistakeState } from "./mistakes";
 import { effectiveConfidence, latestAnswers, learningOutcome } from "./scoring";
@@ -93,8 +95,9 @@ const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export function planDay(input: PlannerInput): DailyPlan {
   const { today, questions, answers, mistakes } = input;
-  // Learnable = active and not keyed ALL (an ALL question is no evidence either way).
-  const learnable = questions.filter((q) => q.status === "active" && q.accepted !== "ALL");
+  // Learnable = active and not keyed ALL (an ALL question is no evidence either way), and servable: a
+  // question needing a figure is never put in a set, so the plan never shows a question it cannot show.
+  const learnable = questions.filter((q) => q.status === "active" && q.accepted !== "ALL" && isServable(q));
   const byId = new Map(questions.map((q) => [q.id, q]));
   const latest = latestAnswers(answers);
   const isOpen = (m: MistakeState | undefined): boolean => m !== undefined && m.stage !== "fixed";
@@ -164,7 +167,7 @@ export function planDay(input: PlannerInput): DailyPlan {
     .filter((m) => m.stage === "logged" && m.retestDay <= today)
     .sort((a, b) => Number(b.misconception) - Number(a.misconception) || cmp(a.retestDay, b.retestDay) || cmp(a.conceptId, b.conceptId));
   for (const m of retestCandidates) {
-    const ids = m.wrongQuestionIds.filter((id) => byId.get(id)?.status === "active" && !queued.has(id));
+    const ids = m.wrongQuestionIds.filter((id) => canShow(byId.get(id)) && !queued.has(id));
     if (!ids.length || items >= cap) continue;
     retestConceptIds.push(m.conceptId);
     for (const id of ids.slice(0, cap - items)) { reviewQuestionIds.push(id); queued.add(id); items++; }
@@ -201,10 +204,15 @@ export function planDay(input: PlannerInput): DailyPlan {
   return { date: today, focus, mode, practiceSet, olderTopicQuestionIds, review, quick };
 }
 
-/** A question card whose question is deleted or missing from the bundle cannot be shown, so it is never queued. */
+/** Whether a review may serve this question: in the bundle, active, and servable. */
+function canShow(q: Question | undefined): boolean {
+  return q !== undefined && q.status === "active" && isServable(q);
+}
+
+/** A question card whose question is deleted, missing or not servable cannot be shown, so it is never queued. */
 function isDeadQuestionCard(c: CardState, byId: Map<string, Question>): boolean {
   if (!c.cardId.startsWith(QUESTION_CARD_PREFIX)) return false;
-  return byId.get(c.cardId.slice(QUESTION_CARD_PREFIX.length))?.status !== "active";
+  return !canShow(byId.get(c.cardId.slice(QUESTION_CARD_PREFIX.length)));
 }
 
 function pickFocus(

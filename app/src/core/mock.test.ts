@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLog } from "./events";
-import { MARKS_PER_QUESTION, MOCK_SECONDS, mockHistory, mockPaperChoices, mockPaperId, mockReport, paperQuestionIds } from "./mock";
+import { MARKS_PER_QUESTION, MOCK_SECONDS, hiddenQuestionCount, mockHistory, mockPaperChoices, mockPaperId, mockReport, paperQuestionIds } from "./mock";
 import type { AnswerGiven, Confidence, ContentBundle, ErrorTagged, LearningEvent, Option, Question } from "./types";
 
 // Synthetic paper, no real exam text. 10 questions:
@@ -312,5 +312,35 @@ describe("multi-paper bundles", () => {
     ]);
     // order of the history list does not matter
     expect(mockPaperChoices(b, [...history].reverse())[0].last).toEqual(history[0]);
+  });
+});
+
+describe("questions that need a figure are left out of the mock", () => {
+  // a3 needs a diagram: not served, so the paper's mock has 9 questions, one of them (t4) deleted.
+  const hiddenA3 = () => bundle({ a3: { figure: true } });
+
+  it("paperQuestionIds skips them; hiddenQuestionCount counts them", () => {
+    expect(paperQuestionIds(hiddenA3(), "p1")).toEqual(["t1", "t2", "t3", "t4", "g1", "g2", "g3", "a1", "a2"]);
+    expect(hiddenQuestionCount(hiddenA3(), "p1")).toBe(1);
+    expect(hiddenQuestionCount(bundle(), "p1")).toBe(0);
+  });
+
+  it("the report scores served questions only: maxMarks is 1.5 x served scorable questions", () => {
+    const r = mockReport(mockOne(), hiddenA3(), "m1", "p1", 0);
+    expect(r).toMatchObject({ total: 9, hidden: 1, unscored: 1, answered: 8, unanswered: 1, correct: 4, marks: 6, maxMarks: 8 * 1.5 });
+    expect(r.parts.find((p) => p.id === "APT")).toMatchObject({ total: 2, maxMarks: 3 });
+    expect(r.byUnit.find((u) => u.unitId === "ccse4.apt.u1")?.total).toBe(2);
+    expect(mockReport(mockOne(), bundle(), "m1", "p1", 0).hidden).toBe(0);
+  });
+
+  it("an old mock that answered a now-hidden question is rescored without it", () => {
+    const old = [...mockOne(), ans("a3", "A", "sure")];
+    const r = mockReport(old, hiddenA3(), "m1", "p1", 0);
+    expect(r).toMatchObject({ total: 9, answered: 8, correct: 4, marks: 6, maxMarks: 12 });
+    expect(mockHistory(buildLog(old), hiddenA3())[0]).toMatchObject({ answered: 8, marks: 6, maxMarks: 12 });
+  });
+
+  it("the paper choice shows the served count", () => {
+    expect(mockPaperChoices(hiddenA3(), [])[0].questions).toBe(9);
   });
 });
