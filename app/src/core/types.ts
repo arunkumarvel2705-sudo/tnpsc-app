@@ -56,7 +56,9 @@ export interface Term {
   en: string;
   ta: string;
   unitId: string;
-  questionIds: string[];
+  questionIds: string[]; // questions whose options are this pair; empty for a textbook-glossary word
+  meaning?: string; // English meaning, from a textbook glossary
+  seenIn?: string[]; // textbook units whose glossary has it, e.g. "Class 8 History: People's Revolt"
 }
 
 export interface EventBase {

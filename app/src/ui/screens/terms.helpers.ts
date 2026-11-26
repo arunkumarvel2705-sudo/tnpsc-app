@@ -1,4 +1,4 @@
-// Term Bridge: English-Tamil technical terms from the bilingual papers, to read Tamil-medium material.
+// Term Bridge: English-Tamil terms from the bilingual papers and the textbook glossaries.
 import type { ContentBundle, Term } from "../../core/types";
 
 /** Terms whose English or Tamil contains the query (case-insensitive for English). Empty query keeps all. */
@@ -6,6 +6,11 @@ export function filterTerms(terms: Term[], query: string): Term[] {
   const q = query.trim().toLowerCase();
   if (!q) return terms;
   return terms.filter((t) => t.en.toLowerCase().includes(q) || t.ta.includes(query.trim()));
+}
+
+/** Only the terms that come from question papers (the rest come from textbook glossaries). */
+export function fromPapers(terms: Term[]): Term[] {
+  return terms.filter((t) => t.questionIds.length > 0);
 }
 
 /** Terms grouped by unit, in the bundle's unit order; units with no terms left out. */
