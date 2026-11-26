@@ -2,6 +2,7 @@
 // and call back. Screens must not import from ../../sync or touch localStorage.
 import type { EngineState } from "../../core/engine";
 import type { ContentBundle, ErrorReason, LearningEvent } from "../../core/types";
+import type { GsLang } from "../format";
 import type { MockDraft } from "../mock";
 import type { Session, SessionKind } from "../session";
 
@@ -38,6 +39,8 @@ export interface MockRunnerProps {
   onChange: (draft: MockDraft) => void; // every answer, flag, confidence change or move: the shell saves it
   onSubmit: (draft: MockDraft, reason: "manual" | "timeout") => void; // shell records the answers and opens the report
   onPause: () => void; // leave the mock screen; the clock keeps running
+  gsLang: GsLang; // language for Part B questions that have both English and Tamil
+  onGsLang: (l: GsLang) => void;
 }
 
 export interface MockReportProps {

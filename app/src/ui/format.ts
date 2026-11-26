@@ -26,3 +26,21 @@ export function matchTable(stem: string): MatchTable | null {
   if (left.length < 2 || right.length !== left.length) return null;
   return { intro: leftParts[0].trim(), left, right };
 }
+
+/** Language the learner reads General Studies in. Part A (Tamil) is always shown in Tamil. */
+export type GsLang = "en" | "ta";
+
+/**
+ * Which language a question is shown in, and whether the learner can switch it. Part A is Tamil only.
+ * Part B follows the learner's choice when the question has text in that language (2025 Part B has English
+ * only), else the language it does have.
+ */
+export function questionLang(q: { section: "tamil" | "gs_apt"; en?: unknown; ta?: unknown }, pref: GsLang): { lang: GsLang; canSwitch: boolean } {
+  if (q.section === "tamil") return { lang: q.ta ? "ta" : "en", canSwitch: false };
+  const canSwitch = Boolean(q.en && q.ta);
+  if (pref === "ta" && q.ta) return { lang: "ta", canSwitch };
+  return { lang: q.en ? "en" : "ta", canSwitch };
+}
+
+/** Label for the switch button: names the language it switches to, in that language. */
+export const switchLabel = (shown: GsLang) => (shown === "en" ? "தமிழில் படி" : "Read in English");

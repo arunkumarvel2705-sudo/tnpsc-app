@@ -8,6 +8,7 @@ import { localDay } from "../core/time";
 import type { AnswerGiven, ContentBundle, ErrorReason, LearningEvent, Question } from "../core/types";
 import { AuthError, fetchBundle, pdfLink, pushEvents } from "../sync/github";
 import { store } from "../sync/store";
+import type { GsLang } from "./format";
 import { newDraft, remainingMs, type MockDraft } from "./mock";
 import { QuestionPlayer } from "./QuestionPlayer";
 import { MockReport } from "./screens/MockReport";
@@ -46,6 +47,8 @@ export default function App() {
   const [mock, setMock] = useState<MockDraft | null>(store.mock());
   const [sync, setSync] = useState<{ state: "idle" | "busy" | "error"; msg?: string }>({ state: "idle" });
   const [pending, setPending] = useState(store.pending().length);
+  const [gsLang, setGsLangState] = useState<GsLang>(store.gsLang());
+  const setGsLang = (l: GsLang) => { store.setGsLang(l); setGsLangState(l); };
   const today = localDay(new Date().toISOString());
 
   const syncNow = useCallback(async () => {
@@ -167,10 +170,10 @@ export default function App() {
   });
 
   if (view.name === "session" && active)
-    return <QuestionPlayer bundle={bundle} session={active} deviceId={store.deviceId()} onAnswer={record} onAdvance={advance}
+    return <QuestionPlayer bundle={bundle} session={active} deviceId={store.deviceId()} gsLang={gsLang} onGsLang={setGsLang} onAnswer={record} onAdvance={advance}
       onExit={() => setView({ name: "tabs" })} onOpenScan={openScan} />;
   if (view.name === "mock" && mock)
-    return <MockRunner bundle={bundle} draft={mock} nowMs={() => Date.now()}
+    return <MockRunner bundle={bundle} draft={mock} nowMs={() => Date.now()} gsLang={gsLang} onGsLang={setGsLang}
       onChange={(d) => { store.setMock(d); setMock(d); }}
       onSubmit={(d) => submitMock(d)} onPause={() => setView({ name: "tabs" })} />;
   if (view.name === "mockReport")
