@@ -4,7 +4,12 @@
 Claude assigned topics from each unit's title and subject, by keyword rules plus per-unit overrides where the
 rules misread a unit. A unit can serve several topics, or none: world history, road safety and foreign policy
 are in the books but not in the Group 4 syllabus, and are kept for reading with an empty topic list.
-Reads silver/textbooks/units.json (+ books.json); writes gold/textbooks/ccse4_units.json.
+Tamil-medium books: a Science or Social Science unit takes the title and topics of the English-medium unit it
+mirrors (same class, term and part, same position), and the build stops if the counts disagree. A Tamil reader
+chapter is titled "இயல் N" (OCR can't be trusted for its title) and linked to the Part A literature topics whose
+names come up often enough in its pages (TAMIL_KW); the Thirukkural sections of the term books go to the
+Thirukkural topic.
+Reads silver/textbooks/units.json (+ books.json, + Tamil pages); writes gold/textbooks/ccse4_units.json.
 Usage: python tag_units_ccse4.py <content-repo>
 This script holds no content beyond unit titles, which are headings.
 """
@@ -125,6 +130,34 @@ OVERRIDES = {
 }
 
 
+TAMIL_KW = {  # topic -> (names that mark it, mentions needed in a chapter)
+    "ta.u7.l_kural": (["திருக்குறள்", "திருவள்ளுவர்"], 5),
+    "ta.u7.l_arani": (["நாலடியார்", "நான்மணிக்கடிகை", "பழமொழி நானூறு", "முதுமொழிக்காஞ்சி", "திரிகடுகம்", "இன்னா நாற்பது",
+                       "இன்னாநாற்பது", "சிறுபஞ்சமூலம்", "ஏலாதி", "ஆத்திசூடி", "கொன்றை வேந்தன்", "மூதுரை", "நல்வழி"], 3),
+    "ta.u7.l_tholmai": (["திராவிட மொழி", "தமிழின் தொன்மை", "மொழிக்குடும்ப"], 3),
+    "ta.u7.l_tamilpani": (["சாமிநாத", "மீனாட்சி சுந்தர", "இலக்குவனார்"], 2),
+    "ta.u7.l_thondu": (["பாவாணர்", "அகரமுதலி", "பெருஞ்சித்திரனார்", "போப்", "வீரமாமுனிவர்"], 2),
+    "ta.u7.l_sanror": (["பாவேந்தர்", "பாரதிதாசன்", "சிதம்பரநாத", "குன்றக்குடி", "கண்ணதாசன்", "காயிதே மில்லத்", "தாரா பாரதி",
+                        "வேலுநாச்சியார்", "வேலு நாச்சியார்", "பட்டுக்கோட்டை", "முடியரசன்", "தமிழ் ஒளி", "தமிழ்ஒளி",
+                        "உருத்திரங்கண்ணனார்", "ஜகந்நாத", "நாமக்கல் கவிஞர்"], 4),
+}
+
+
+def tamil_reader(u: dict, pages: list, n: int):
+    """Title and topics of a Tamil reader chapter (n = its number in the book)."""
+    if re.search(r"kural", u["slug"], re.I):
+        return "திருக்குறள்", ["ta.u7.l_kural"]
+    m = re.search(r"unit[\s_\-]*([0-9ilt|]{1,2})\b", u["slug"], re.I)
+    num = m.group(1).translate(str.maketrans("ilt|", "1111")).lstrip("0") if m else str(n)
+    text = "\n".join(pages[u["pageStart"] - 1:u["pageEnd"]])
+    topics = [t for t, (names, need) in TAMIL_KW.items() if sum(text.count(w) for w in names) >= need]
+    return f"இயல் {num}", topics
+
+
+def mirror_key(u: dict, b: dict, part: str):
+    return (b["class"], b["term"], part)
+
+
 def clean_title(t: str) -> str:
     t = re.sub(r"^(CIVICS\s+)?unit\s*[-–]\s*[\divx]+\s*", "", t.strip(), flags=re.I)
     t = re.sub(r"^\d+\s+", "", t)
@@ -137,27 +170,50 @@ def main(content: Path) -> None:
     books = {b["id"]: b for b in json.loads((content / "silver/textbooks/books.json").read_text(encoding="utf-8"))}
     units = json.loads((content / "silver/textbooks/units.json").read_text(encoding="utf-8"))
     out, unused = [], set(OVERRIDES)
-    for u in units:
+    # English-medium units in order, per (class, term, part), for the Tamil-medium units to mirror
+    english, tamil_n, page_cache, mirrored = {}, {}, {}, {}
+    for u in sorted(units, key=lambda u: books[u["bookId"]]["medium"] != "english"):
         key = f"{u['bookId']}:{u['seq']}"
         o = OVERRIDES.get(key, {})
         unused.discard(key)
         kind = o.get("kind", u["kind"])
         if kind != "unit":
             continue
-        part = o.get("part") or u["part"] or ("maths" if u["subject"] == "maths" else "science" if u["subject"] == "science" else None)
-        title = o.get("title") or clean_title(u["titleGuess"])
-        if not part or not title:
-            sys.exit(f"{key}: no part or title ({u})")
-        topics = o["topics"] if "topics" in o else next(t for rx, t in RULES[part] if re.search(rx, title, re.I))
+        b = books[u["bookId"]]
+        part = o.get("part") or u["part"] or {"maths": "maths", "science": "science", "tamil": "tamil"}.get(u["subject"])
+        if b["medium"] == "tamil" and part == "tamil":
+            if u["bookId"] not in page_cache:
+                page_cache[u["bookId"]] = [json.loads(l)["text"] for l in (content / "silver/textbooks" / u["bookId"] / "pages.jsonl").open(encoding="utf-8")]
+            tamil_n[u["bookId"]] = tamil_n.get(u["bookId"], 0) + 1
+            title, topics = tamil_reader(u, page_cache[u["bookId"]], tamil_n[u["bookId"]])
+            title, topics = o.get("title", title), o.get("topics", topics)
+        elif b["medium"] == "tamil":
+            k = mirror_key(u, b, part)
+            i = mirrored.get(k, 0)
+            mirrored[k] = i + 1
+            twins = english.get(k, [])
+            if i >= len(twins):
+                sys.exit(f"{key}: no English-medium unit to mirror at {k} #{i + 1} ({len(twins)} there)")
+            title, topics = o.get("title", twins[i]["title"]), o.get("topics", [t[6:] for t in twins[i]["topicIds"]])
+        else:
+            title = o.get("title") or clean_title(u["titleGuess"])
+            if not part or not title:
+                sys.exit(f"{key}: no part or title ({u})")
+            topics = o["topics"] if "topics" in o else next(t for rx, t in RULES[part] if re.search(rx, title, re.I))
         topics = [f"ccse4.{t}" for t in topics]
         bad = [t for t in topics if t not in graph]
         if bad:
             sys.exit(f"{key}: unknown topics {bad}")
-        b = books[u["bookId"]]
         out.append({"id": key.replace(":", "_u"), "bookId": u["bookId"], "class": b["class"], "medium": b["medium"], "part": part,
                     "title": title, "pageStart": u["pageStart"], "pageEnd": u["pageEnd"], "topicIds": topics})
+        if b["medium"] == "english":
+            english.setdefault(mirror_key(u, b, part), []).append(out[-1])
     if unused:
         sys.exit(f"overrides for units that don't exist: {sorted(unused)}")
+    short = {k: (len(v), mirrored.get(k, 0)) for k, v in english.items() if k in mirrored and mirrored[k] != len(v)}
+    if short:
+        sys.exit(f"Tamil-medium unit counts differ from English-medium (class, term, part): (English, Tamil) {short}")
+    out.sort(key=lambda u: (u["bookId"], u["pageStart"]))
     dest = content / "gold/textbooks/ccse4_units.json"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
