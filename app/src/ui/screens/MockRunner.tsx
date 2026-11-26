@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isServable } from "../../core/content";
 import type { Confidence, Option, Question } from "../../core/types";
 import { remainingMs, type MockDraft } from "../mock";
-import { matchTable, stemLines } from "../format";
+import { matchTable, questionLang, stemLines, switchLabel, type GsLang } from "../format";
 import type { MockRunnerProps } from "./contracts";
 import {
   choose, counts, formatClock, gridCells, isLowTime, move, setConfidence, spend, submitOnce, toggleFlag,
@@ -21,7 +21,7 @@ const CONFIDENCE: { id: Confidence; label: string }[] = [
   { id: "none", label: "No idea" },
 ];
 
-export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }: MockRunnerProps) {
+export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause, gsLang, onGsLang }: MockRunnerProps) {
   // Latest props in refs: the shell passes new callbacks every render, and two taps can land before a re-render.
   const clock = useRef(nowMs);
   clock.current = nowMs;
@@ -168,7 +168,7 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
             )}
           </div>
           {q ? (
-            <QuestionBody q={q} byId={byId} answer={draft.answers[q.id]}
+            <QuestionBody q={q} byId={byId} answer={draft.answers[q.id]} gsLang={gsLang} onGsLang={onGsLang}
               onPick={(o) => save(choose(latest.current, q.id, o))}
               onConfidence={(cf) => save(setConfidence(latest.current, q.id, cf))} />
           ) : (
@@ -205,20 +205,26 @@ export function MockRunner({ bundle, draft, nowMs, onChange, onSubmit, onPause }
 }
 
 /** Question text and options, shown as the question player shows them, with no correctness. */
-function QuestionBody({ q, byId, answer, onPick, onConfidence }: {
+function QuestionBody({ q, byId, answer, gsLang, onGsLang, onPick, onConfidence }: {
   q: Question;
+  gsLang: GsLang;
+  onGsLang: (l: GsLang) => void;
   byId: Map<string, Question>;
   answer: MockDraft["answers"][string] | undefined;
   onPick: (o: Option) => void;
   onConfidence: (c: Confidence) => void;
 }) {
-  const lang = q.section === "tamil" ? "ta" : "en";
+  const { lang, canSwitch } = questionLang(q, gsLang);
   const text = q[lang] ?? q.en ?? q.ta;
   const passage = q.passage?.[lang] ?? (q.passageRef ? byId.get(q.passageRef)?.passage?.[lang] : undefined);
   if (!text) return <p className="card">This question has no text yet.</p>;
   const table = q.format === "match" ? matchTable(text.stem) : null;
   return (
     <div lang={lang} className="mr-q">
+      {canSwitch && (
+        <div className="langswitch"><button className="link" lang={lang === "en" ? "ta" : "en"}
+          onClick={() => onGsLang(lang === "en" ? "ta" : "en")}>{switchLabel(lang)}</button></div>
+      )}
       {passage && <blockquote className="passage">{passage}</blockquote>}
       <div className={`stem ${lang}`}>
         {table ? (

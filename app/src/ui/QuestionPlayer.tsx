@@ -4,13 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isServable } from "../core/content";
 import { effectiveConfidence, outcome } from "../core/scoring";
 import type { AnswerGiven, Confidence, ContentBundle, Option } from "../core/types";
-import { matchTable, stemLines } from "./format";
+import { matchTable, questionLang, stemLines, switchLabel, type GsLang } from "./format";
 import type { Session } from "./session";
 
-export function QuestionPlayer({ bundle, session, deviceId, onAnswer, onAdvance, onExit, onOpenScan }: {
+export function QuestionPlayer({ bundle, session, deviceId, gsLang, onGsLang, onAnswer, onAdvance, onExit, onOpenScan }: {
   bundle: ContentBundle;
   session: Session;
   deviceId: string;
+  gsLang: GsLang; // learner's language for Part B; the shell stores it
+  onGsLang: (l: GsLang) => void;
   onAnswer: (e: AnswerGiven) => void;
   onAdvance: (nextIndex: number) => void; // shell stores it; finishing = nextIndex >= questionIds.length
   onExit: () => void; // leave mid-session; it stays resumable
@@ -38,7 +40,7 @@ export function QuestionPlayer({ bundle, session, deviceId, onAnswer, onAdvance,
     );
   }
 
-  const lang = q.section === "tamil" ? "ta" : "en";
+  const { lang, canSwitch } = questionLang(q, gsLang);
   const text = q[lang] ?? q.en ?? q.ta!;
   const passage = q.passage?.[lang] ?? (q.passageRef ? byId.get(q.passageRef)?.passage?.[lang] : undefined);
   const total = session.questionIds.length;
@@ -75,6 +77,10 @@ export function QuestionPlayer({ bundle, session, deviceId, onAnswer, onAdvance,
         <button className="link" onClick={onExit}>← Pause</button>
         <span className="muted">{session.title} · {i + 1}/{total}</span>
       </header>
+      {canSwitch && (
+        <div className="langswitch"><button className="link" lang={lang === "en" ? "ta" : "en"}
+          onClick={() => onGsLang(lang === "en" ? "ta" : "en")}>{switchLabel(lang)}</button></div>
+      )}
       <div className="bar thin"><div style={{ width: `${(i / total) * 100}%` }} /></div>
       {passage && <blockquote className="passage">{passage}</blockquote>}
       <div className={`stem ${lang}`}>

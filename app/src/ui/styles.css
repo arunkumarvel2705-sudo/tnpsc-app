@@ -84,3 +84,4 @@ button.wide { width: 100%; }
 .mock-papers li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .mock-papers li > div { display: grid; gap: 2px; }
 .mock-papers li > button { flex: none; min-width: 88px; }
+.langswitch { display: flex; justify-content: flex-end; margin: 2px 0 6px; }

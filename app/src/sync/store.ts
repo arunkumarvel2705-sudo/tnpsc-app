@@ -1,10 +1,11 @@
 // Local, offline-first store (NFR-02). Everything is wrapped: storage can be unavailable or full.
 import { normalizeBundle, type RawBundle } from "../core/content";
 import type { ContentBundle, LearningEvent } from "../core/types";
+import type { GsLang } from "../ui/format";
 import type { MockDraft } from "../ui/mock";
 import { migrateProgress, migrateSession, type Session } from "../ui/session";
 
-const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session", mock: "tj.mock" };
+const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session", mock: "tj.mock", gsLang: "tj.gsLang" };
 
 function get<T>(key: string, fallback: T): T {
   try {
@@ -77,6 +78,9 @@ export const store = {
       try { localStorage.removeItem(K.mock); } catch { /* ignore */ }
     }
   },
+  /** Language for General Studies questions (Part B); English until the learner switches. */
+  gsLang: (): GsLang => (get<string>(K.gsLang, "en") === "ta" ? "ta" : "en"),
+  setGsLang: (l: GsLang) => set(K.gsLang, l),
   /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
   session(): Session | null {
     const s = get<Session | null>(K.session, null);
