@@ -218,7 +218,7 @@ export default function App() {
   if (view.name === "terms") return <TermBridge bundle={bundle} onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "syllabus")
     return <Syllabus bundle={bundle} answers={answers} pathExam={PATH_EXAM} onPractise={(title, ids) => start("quick", title, ids)}
-      onExit={() => setView({ name: "tabs" })} />;
+      onRead={openScan} onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "tags")
     return <TagReview bundle={bundle} queue={tagReviewQueue(bundle)} gsLang={gsLang} onGsLang={setGsLang} onReview={reviewTag}
       onExit={() => setView({ name: "tabs" })} />;

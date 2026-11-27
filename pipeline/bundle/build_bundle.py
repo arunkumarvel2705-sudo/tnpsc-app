@@ -12,6 +12,8 @@ Two steps, both deterministic (same inputs give byte-identical output, AT-P1):
     + config/paths/<path-id>.json (optional: rankingExcludedSections per paper)
     + gold/tags/reviews.json        (optional: AK's in-app tag reviews, from tagging/fold_reviews.py)
     + gold/terms/<path-id>.json     (optional: Term Bridge pairs, from terms/build_terms.py)
+    + gold/textbooks/<path-id>_units.json (optional: textbook units per topic, from textbooks/tag_units_*.py,
+      with silver/textbooks/books.json for each book's PDF path)
     -> gold/bundles/<path-id>.json            what the app downloads (papers newest first)
 
 The merge refuses to write a bundle with duplicate question ids, untagged questions, or topics that are not
@@ -135,6 +137,25 @@ def merge(content: Path, path_id: str, version: str) -> None:
         if bad:
             sys.exit(f"Bundle not written: terms with unknown units or questions: {bad}")
         bundle["terms"] = terms
+    units_path = content / "gold/textbooks" / f"{path_id}_units.json"
+    if units_path.exists():
+        books = {b["id"]: b for b in read(content / "silver/textbooks/books.json")}
+        part_name = {"science": "Science", "history": "History", "geography": "Geography", "civics": "Civics",
+                     "economics": "Economics", "maths": "Maths", "tamil": "Tamil"}
+        readings, bad = [], []
+        for u in read(units_path):
+            b = books.get(u["bookId"])
+            if b is None or any(t not in nodes for t in u["topicIds"]):
+                bad.append(u["id"])
+                continue
+            if not u["topicIds"]:
+                continue
+            label = f"Class {u['class']} {part_name[u['part']]}" + (f", Term {b['term']}" if b.get("term") else "")
+            readings.append({"topicIds": u["topicIds"], "label": label, "medium": u["medium"], "title": u["title"],
+                             "pdfRef": b["pdfRef"], "pageStart": u["pageStart"], "pageEnd": u["pageEnd"]})
+        if bad:
+            sys.exit(f"Bundle not written: textbook units with unknown books or topics: {bad}")
+        bundle["readings"] = readings
     expected = sum(len(p["questions"]) for p in parts)
     if len(bundle["questions"]) != expected or [p["id"] for p in bundle["papers"]] != [p["paper"]["id"] for p in parts]:
         sys.exit(f"Bundle not written: {len(bundle['questions'])} questions assembled, {expected} expected")
