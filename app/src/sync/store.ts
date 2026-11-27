@@ -5,7 +5,7 @@ import type { GsLang } from "../ui/format";
 import type { MockDraft } from "../ui/mock";
 import { migrateProgress, migrateSession, type Session } from "../ui/session";
 
-const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session", mock: "tj.mock", gsLang: "tj.gsLang" };
+const K = { token: "tj.token", device: "tj.device", bundle: "tj.bundle", events: "tj.events", pending: "tj.pending", progress: "tj.progress", session: "tj.session", mock: "tj.mock", gsLang: "tj.gsLang", builder: "tj.builder" };
 
 function get<T>(key: string, fallback: T): T {
   try {
@@ -81,6 +81,9 @@ export const store = {
   /** Language for General Studies questions (Part B); English until the learner switches. */
   gsLang: (): GsLang => (get<string>(K.gsLang, "en") === "ta" ? "ta" : "en"),
   setGsLang: (l: GsLang) => set(K.gsLang, l),
+  /** The Practice builder's last choices, raw: the shell checks them against the bundle (core/builder.sanitizeSpec). */
+  builder: (): unknown => get<unknown>(K.builder, null),
+  setBuilder: (spec: unknown) => set(K.builder, spec),
   /** The one session in progress, kept so closing the app mid-session resumes at the same question (AT-U2). */
   session(): Session | null {
     const s = get<Session | null>(K.session, null);
