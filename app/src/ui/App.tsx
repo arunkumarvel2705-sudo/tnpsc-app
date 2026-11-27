@@ -1,5 +1,6 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { builderPool, DEFAULT_SPEC, pickSet, sanitizeSpec, type BuilderSpec } from "../core/builder";
 import { applyTagReviews, sectionQuestionIds, tagReviewQueue } from "../core/content";
 import { computeState } from "../core/engine";
 import { MOCK_SECONDS, mockHistory, mockPaperChoices, paperQuestionIds } from "../core/mock";
@@ -11,6 +12,8 @@ import { store } from "../sync/store";
 import type { GsLang } from "./format";
 import { newDraft, remainingMs, type MockDraft } from "./mock";
 import { QuestionPlayer } from "./QuestionPlayer";
+import { Builder } from "./screens/Builder";
+import { builderTitle } from "./screens/builder.helpers";
 import { MockReport } from "./screens/MockReport";
 import { MockRunner } from "./screens/MockRunner";
 import { Papers } from "./screens/Papers";
@@ -59,6 +62,9 @@ export default function App() {
   const [pending, setPending] = useState(store.pending().length);
   const [gsLang, setGsLangState] = useState<GsLang>(store.gsLang());
   const setGsLang = (l: GsLang) => { store.setGsLang(l); setGsLangState(l); };
+  const [builderRaw, setBuilderRaw] = useState<unknown>(store.builder());
+  const builderSpec = useMemo(() => (bundle ? sanitizeSpec(builderRaw, bundle) : DEFAULT_SPEC), [builderRaw, bundle]);
+  const setBuilderSpec = (b: BuilderSpec) => { store.setBuilder(b); setBuilderRaw(b); };
   const today = localDay(new Date().toISOString());
 
   const syncNow = useCallback(async () => {
@@ -164,6 +170,10 @@ export default function App() {
     const s = newSession("paper", title, ids, new Date().toISOString(), crypto.randomUUID(), key);
     begin({ ...s, index: at >= ids.length ? 0 : at });
   };
+  const startBuilt = (spec: BuilderSpec) => {
+    const ids = pickSet(builderPool(bundle, answers, spec), spec.count, crypto.randomUUID());
+    start("custom", builderTitle(bundle, spec), ids);
+  };
   const advance = (n: number) => {
     if (!active) return;
     const s = { ...active, index: n };
@@ -223,7 +233,10 @@ export default function App() {
     return <TagReview bundle={bundle} queue={tagReviewQueue(bundle)} gsLang={gsLang} onGsLang={setGsLang} onReview={reviewTag}
       onExit={() => setView({ name: "tabs" })} />;
   if (view.name === "close")
-    return <SessionClose session={view.session} bundle={bundle} log={log} onTag={tag} onDone={() => { setView({ name: "tabs" }); setTab("today"); }} />;
+    return <SessionClose session={view.session} bundle={bundle} log={log} onTag={tag} onDone={() => {
+      // Sets started from the Practice tab go back to it; planned sessions go back to Today.
+      setView({ name: "tabs" }); setTab(view.session.kind === "custom" || view.session.kind === "paper" ? "practice" : "today");
+    }} />;
 
   return (
     <main className="wrap tabs-pad">
@@ -237,6 +250,7 @@ export default function App() {
         onStart={start} onResume={() => setView({ name: "session" })} />}
       {tab === "practice" && (
         <>
+          {!mock && <Builder bundle={bundle} answers={answers} spec={builderSpec} onChange={setBuilderSpec} onStart={startBuilt} />}
           <MockCard bundle={bundle} log={log} draft={mock}
             onStart={(paperId) => {
               const ids = paperQuestionIds(bundle, paperId);

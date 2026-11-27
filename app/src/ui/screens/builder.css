@@ -1,0 +1,14 @@
+.bd-title { margin: 0 0 8px; }
+.bd-row { margin: 10px 0; }
+.bd-label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+.bd-row .bd-label { margin-top: 0; }
+.bd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-chip { min-height: 38px; font-size: 14px; padding: 4px 12px; border-radius: 99px; color: var(--ink); }
+.bd-chip.on { background: var(--chosen); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.bd-n { font-weight: 400; color: var(--muted); margin-left: 2px; }
+.bd-chip.on .bd-n { color: var(--accent); }
+.bd-select { width: 100%; min-height: 44px; font: inherit; font-size: 15px; padding: 8px 10px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.bd .primary { margin-top: 12px; }
+.bd .primary:disabled { background: var(--line); border-color: var(--line); color: var(--muted); }
+.bd-foot { margin: 8px 0 0; text-align: center; }

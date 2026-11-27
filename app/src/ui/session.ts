@@ -2,7 +2,7 @@
 // Stored after every answer so the app resumes at the same question after being closed (AT-U2).
 import type { AnswerGiven, Question } from "../core/types";
 
-export type SessionKind = "focus" | "quick" | "diagnostic" | "paper";
+export type SessionKind = "focus" | "quick" | "diagnostic" | "paper" | "custom"; // custom: a Practice builder set
 
 export interface Session {
   id: string; // also the sessionId on every AnswerGiven in it
