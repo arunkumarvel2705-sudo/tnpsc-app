@@ -3,14 +3,18 @@
 import { useMemo, useState } from "react";
 import type { AnswerGiven, ContentBundle } from "../../core/types";
 import { groupUnits, weightText } from "./progress.helpers";
-import { askedText, syllabusRows, topicPractiseIds } from "./syllabus.helpers";
+import { askedText, readingText, readingsFor, syllabusRows, topicPractiseIds } from "./syllabus.helpers";
 import "./progress.css";
 
-export function Syllabus({ bundle, answers, pathExam, onPractise, onExit }: {
+/** Readings shown before "show all". */
+const READ_SHOWN = 3;
+
+export function Syllabus({ bundle, answers, pathExam, onPractise, onRead, onExit }: {
   bundle: ContentBundle;
   answers: AnswerGiven[];
   pathExam: string;
   onPractise: (title: string, questionIds: string[]) => void;
+  onRead: (pdfRef: string, page: number) => void;
   onExit: () => void;
 }) {
   const rows = useMemo(() => syllabusRows(bundle, answers, pathExam), [bundle, answers, pathExam]);
@@ -18,6 +22,7 @@ export function Syllabus({ bundle, answers, pathExam, onPractise, onExit }: {
   const answered = useMemo(() => new Set(answers.map((a) => a.questionId)), [answers]);
   const groups = useMemo(() => groupUnits(bundle.units), [bundle.units]);
   const [openUnit, setOpenUnit] = useState<string | null>(null);
+  const [allReads, setAllReads] = useState<Set<string>>(new Set());
   return (
     <main className="wrap">
       <header className="qhead">
@@ -55,6 +60,25 @@ export function Syllabus({ bundle, answers, pathExam, onPractise, onExit }: {
                           {t.questionIds.length > 0 && (
                             <button onClick={() => onPractise(t.nameEn, topicPractiseIds(t, answered))}>Practise</button>
                           )}
+                          {(() => {
+                            const reads = readingsFor(bundle, t.topicId);
+                            if (reads.length === 0) return null;
+                            const all = allReads.has(t.topicId);
+                            return (
+                              <div className="sy-read">
+                                <span className="muted small">Read in the textbooks</span>
+                                {(all ? reads : reads.slice(0, READ_SHOWN)).map((r) => (
+                                  <button key={`${r.pdfRef}#${r.pageStart}`} className="link sy-readlink" lang={r.medium === "tamil" ? "ta" : undefined}
+                                    onClick={() => onRead(r.pdfRef, r.pageStart)}>
+                                    {readingText(r)}{r.medium === "tamil" && " · Tamil medium"}
+                                  </button>
+                                ))}
+                                {!all && reads.length > READ_SHOWN && (
+                                  <button className="link small" onClick={() => setAllReads(new Set(allReads).add(t.topicId))}>Show all {reads.length}</button>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </li>
                       ))}
                     </ul>

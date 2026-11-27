@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AnswerGiven, ContentBundle, Question } from "../../core/types";
-import { askedText, syllabusRows, topicPractiseIds } from "./syllabus.helpers";
+import type { AnswerGiven, ContentBundle, Question, Reading } from "../../core/types";
+import { askedText, readingText, readingsFor, syllabusRows, topicPractiseIds } from "./syllabus.helpers";
 
 // Invented placeholder questions only.
 const q = (id: string, paperId: string, year: number, n: number, section: Question["section"], topicId: string, extra: Partial<Question> = {}): Question => ({
@@ -59,5 +59,21 @@ describe("topicPractiseIds", () => {
     const row = { topicId: "t", nameEn: "t", nameTa: null, questionIds: ["a", "b", "c"], papersAsked: 1, papersTotal: 1, answered: 1, correct: 1 };
     expect(topicPractiseIds(row, new Set(["a"]))).toEqual(["b", "c", "a"]);
     expect(topicPractiseIds(row, new Set(), 2)).toEqual(["a", "b"]);
+  });
+});
+
+describe("readingsFor", () => {
+  // Invented placeholder units only.
+  const r = (label: string, medium: "english" | "tamil", pageStart: number, topicIds = ["t1"]): Reading =>
+    ({ topicIds, label, medium, title: "Unit", pdfRef: "x.pdf", pageStart, pageEnd: pageStart + 9 });
+  const b = { readings: [r("Class 9 Science", "tamil", 5), r("Class 9 Science", "english", 30), r("Class 6 Science", "english", 50),
+    r("Class 7 Science", "english", 5, ["t2"])] } as unknown as ContentBundle;
+  it("lists English medium first, then by class and page", () => {
+    expect(readingsFor(b, "t1").map((x) => `${x.label}/${x.medium}`)).toEqual(["Class 6 Science/english", "Class 9 Science/english", "Class 9 Science/tamil"]);
+    expect(readingsFor(b, "none")).toEqual([]);
+    expect(readingsFor({} as ContentBundle, "t1")).toEqual([]);
+  });
+  it("describes a reading", () => {
+    expect(readingText(r("Class 9 Science", "english", 18))).toBe("Class 9 Science · Unit · PDF pages 18–27");
   });
 });
