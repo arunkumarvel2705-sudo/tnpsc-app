@@ -101,6 +101,9 @@ button.wide { width: 100%; }
 .tb-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .tb-list li:first-child { border-top: 0; }
 .tb-ta { text-align: right; }
+.tb-en { display: flex; flex-direction: column; gap: 2px; }
+.tb-mean { font-size: 0.8em; color: var(--muted, #666); }
+.tb-tag { align-self: flex-start; font-size: 0.7em; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted, #666); }
 .qterms { margin-top: 10px; }
 .qterms ul { list-style: none; margin: 4px 0 0; padding: 0; }
 .qterms li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
