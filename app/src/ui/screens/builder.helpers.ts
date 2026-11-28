@@ -2,7 +2,7 @@
 import { SUBJECTS, subjectOf, type BuilderSpec, type BuilderStatus } from "../../core/builder";
 import type { ContentBundle } from "../../core/types";
 
-export const STATUS_LABEL: Record<BuilderStatus, string> = { any: "Any", new: "New", wrong: "Got wrong", unsure: "Not sure" };
+export const STATUS_LABEL: Record<BuilderStatus, string> = { any: "Any", new: "New", wrong: "Got wrong", unsure: "Not sure", mistakes: "Open mistakes" };
 
 /** Short chip label for a paper: its year. */
 export function paperYear(p: ContentBundle["papers"][number]): string {

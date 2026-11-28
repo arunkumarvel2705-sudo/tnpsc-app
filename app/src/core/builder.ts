@@ -2,10 +2,11 @@
 // Pure: the caller passes the seed, so the same choices and seed always give the same set.
 import { isServable } from "./content";
 import { learningOutcome } from "./scoring";
+import type { MistakeState } from "./mistakes";
 import type { AnswerGiven, ContentBundle, Question } from "./types";
 
 export type Subject = "tamil" | "gs" | "apt";
-export type BuilderStatus = "any" | "new" | "wrong" | "unsure";
+export type BuilderStatus = "any" | "new" | "wrong" | "unsure" | "mistakes";
 
 export interface BuilderSpec {
   subject: Subject | "all";
@@ -64,10 +65,22 @@ function inScope(q: Question, spec: BuilderSpec): boolean {
   return true;
 }
 
+/**
+ * Questions missed in a mistake that is not fixed yet (core/mistakes, the same list Progress shows). Unlike
+ * "wrong", a question stays here after one right answer, until its mistake is fixed.
+ */
+export function openMistakeQuestionIds(mistakes: Iterable<MistakeState>): Set<string> {
+  const ids = new Set<string>();
+  for (const m of mistakes) if (m.stage !== "fixed") for (const id of m.wrongQuestionIds) ids.add(id);
+  return ids;
+}
+
 /** How many questions each status choice would match with the rest of the spec as it is. */
-export function statusCounts(bundle: ContentBundle, answers: AnswerGiven[], spec: BuilderSpec): Record<BuilderStatus, number> {
+export function statusCounts(
+  bundle: ContentBundle, answers: AnswerGiven[], spec: BuilderSpec, openMistakeIds: Set<string> = new Set(),
+): Record<BuilderStatus, number> {
   const latest = latestByQuestion(answers);
-  const c: Record<BuilderStatus, number> = { any: 0, new: 0, wrong: 0, unsure: 0 };
+  const c: Record<BuilderStatus, number> = { any: 0, new: 0, wrong: 0, unsure: 0, mistakes: 0 };
   for (const q of usable(bundle)) {
     if (!inScope(q, spec)) continue;
     const s = questionStatus(q, latest.get(q.id));
@@ -75,16 +88,20 @@ export function statusCounts(bundle: ContentBundle, answers: AnswerGiven[], spec
     if (s.isNew) c.new++;
     if (s.wrong) c.wrong++;
     if (s.unsure) c.unsure++;
+    if (openMistakeIds.has(q.id)) c.mistakes++;
   }
   return c;
 }
 
 /** Every question the spec matches, in bundle order. */
-export function builderPool(bundle: ContentBundle, answers: AnswerGiven[], spec: BuilderSpec): Question[] {
+export function builderPool(
+  bundle: ContentBundle, answers: AnswerGiven[], spec: BuilderSpec, openMistakeIds: Set<string> = new Set(),
+): Question[] {
   const latest = latestByQuestion(answers);
   return usable(bundle).filter((q) => {
     if (!inScope(q, spec)) return false;
     if (spec.status === "any") return true;
+    if (spec.status === "mistakes") return openMistakeIds.has(q.id);
     const s = questionStatus(q, latest.get(q.id));
     return spec.status === "new" ? s.isNew : spec.status === "wrong" ? s.wrong : s.unsure;
   });
@@ -135,7 +152,7 @@ export function sanitizeSpec(raw: unknown, bundle: ContentBundle): BuilderSpec {
   const topic = (bundle.topics ?? []).find((t) => t.id === s.topicId);
   const topicId = unitId && topic && topic.unitId === unitId ? topic.id : null;
   const paperIds = Array.isArray(s.paperIds) ? s.paperIds.filter((id) => bundle.papers.some((p) => p.id === id)) : [];
-  const status = (["any", "new", "wrong", "unsure"] as const).find((x) => x === s.status) ?? "any";
+  const status = (["any", "new", "wrong", "unsure", "mistakes"] as const).find((x) => x === s.status) ?? "any";
   const count = (BUILDER_COUNTS as readonly number[]).includes(s.count as number) ? (s.count as number) : DEFAULT_SPEC.count;
   return { subject, unitId, topicId, paperIds: paperIds.length === bundle.papers.length ? [] : paperIds, status, count };
 }

@@ -1,6 +1,6 @@
 // App shell: owns storage, sync, the engine state and navigation. Screens render; the shell records.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { builderPool, DEFAULT_SPEC, pickSet, sanitizeSpec, type BuilderSpec } from "../core/builder";
+import { builderPool, DEFAULT_SPEC, openMistakeQuestionIds, pickSet, sanitizeSpec, type BuilderSpec } from "../core/builder";
 import { applyTagReviews, sectionQuestionIds, tagReviewQueue } from "../core/content";
 import { computeState } from "../core/engine";
 import { MOCK_SECONDS, mockHistory, mockPaperChoices, paperQuestionIds } from "../core/mock";
@@ -155,6 +155,7 @@ export default function App() {
 
   const state = useMemo(() => (bundle ? computeState(log, bundle, today, PATH_EXAM) : null), [log, bundle, today]);
   const answers = useMemo(() => log.filter((e): e is AnswerGiven => e.type === "answer"), [log]);
+  const openMistakeIds = useMemo(() => openMistakeQuestionIds(state?.mistakes.values() ?? []), [state]);
 
   if (!token || !bundle || !state) return <Setup onReady={(t, b) => { store.setToken(t); store.setBundle(b); setToken(t); setBundle(b); }} />;
 
@@ -171,7 +172,7 @@ export default function App() {
     begin({ ...s, index: at >= ids.length ? 0 : at });
   };
   const startBuilt = (spec: BuilderSpec) => {
-    const ids = pickSet(builderPool(bundle, answers, spec), spec.count, crypto.randomUUID());
+    const ids = pickSet(builderPool(bundle, answers, spec, openMistakeIds), spec.count, crypto.randomUUID());
     start("custom", builderTitle(bundle, spec), ids);
   };
   const advance = (n: number) => {
@@ -250,7 +251,7 @@ export default function App() {
         onStart={start} onResume={() => setView({ name: "session" })} />}
       {tab === "practice" && (
         <>
-          {!mock && <Builder bundle={bundle} answers={answers} spec={builderSpec} onChange={setBuilderSpec} onStart={startBuilt} />}
+          {!mock && <Builder bundle={bundle} answers={answers} openMistakeIds={openMistakeIds} spec={builderSpec} onChange={setBuilderSpec} onStart={startBuilt} />}
           <MockCard bundle={bundle} log={log} draft={mock}
             onStart={(paperId) => {
               const ids = paperQuestionIds(bundle, paperId);

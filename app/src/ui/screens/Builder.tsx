@@ -5,15 +5,16 @@ import type { AnswerGiven, ContentBundle } from "../../core/types";
 import { paperYear, STATUS_LABEL, topicsOf, unitGroups } from "./builder.helpers";
 import "./builder.css";
 
-export function Builder({ bundle, answers, spec, onChange, onStart }: {
+export function Builder({ bundle, answers, openMistakeIds, spec, onChange, onStart }: {
   bundle: ContentBundle;
   answers: AnswerGiven[];
+  openMistakeIds: Set<string>; // questions in mistakes not fixed yet (core/builder.openMistakeQuestionIds)
   spec: BuilderSpec;
   onChange: (spec: BuilderSpec) => void; // the shell remembers the last choices
   onStart: (spec: BuilderSpec) => void; // the shell picks the set (seeded) and starts the session
 }) {
-  const counts = useMemo(() => statusCounts(bundle, answers, spec), [bundle, answers, spec]);
-  const pool = useMemo(() => builderPool(bundle, answers, spec).length, [bundle, answers, spec]);
+  const counts = useMemo(() => statusCounts(bundle, answers, spec, openMistakeIds), [bundle, answers, spec, openMistakeIds]);
+  const pool = useMemo(() => builderPool(bundle, answers, spec, openMistakeIds).length, [bundle, answers, spec, openMistakeIds]);
   const set = (s: Partial<BuilderSpec>) => onChange({ ...spec, ...s });
   const topics = topicsOf(bundle, spec.unitId);
   const n = Math.min(pool, spec.count);
@@ -58,7 +59,7 @@ export function Builder({ bundle, answers, spec, onChange, onStart }: {
       )}
 
       <Row label="Questions">
-        {(["any", "new", "wrong", "unsure"] as BuilderStatus[]).map((s) => (
+        {(["any", "new", "wrong", "unsure", "mistakes"] as BuilderStatus[]).map((s) => (
           <Chip key={s} on={spec.status === s} onClick={() => set({ status: s })}>
             {STATUS_LABEL[s]} <span className="bd-n">{counts[s]}</span>
           </Chip>
