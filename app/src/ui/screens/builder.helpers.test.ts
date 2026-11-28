@@ -22,6 +22,7 @@ describe("builder helpers", () => {
     expect(builderTitle(b, { ...DEFAULT_SPEC, subject: "gs" })).toBe("Practice: General Studies");
     expect(builderTitle(b, { ...DEFAULT_SPEC, subject: "gs", unitId: "x.gs.u4", status: "wrong" })).toBe("Practice: Polity · got wrong");
     expect(builderTitle(b, { ...DEFAULT_SPEC, unitId: "x.gs.u4", topicId: "t.parl", status: "unsure" })).toBe("Practice: Parliament · not sure");
+    expect(builderTitle(b, { ...DEFAULT_SPEC, status: "mistakes" })).toBe("Practice: Mixed · open mistakes");
   });
 
   it("groups units by subject, leaving out empty subjects", () => {

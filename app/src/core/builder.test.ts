@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mistakeStates } from "./mistakes";
 import {
-  builderPool, DEFAULT_SPEC, pickSet, questionStatus, sanitizeSpec, seededRandom, statusCounts, subjectOf, type BuilderSpec,
+  builderPool, DEFAULT_SPEC, openMistakeQuestionIds, pickSet, questionStatus, sanitizeSpec, seededRandom, statusCounts, subjectOf, type BuilderSpec,
 } from "./builder";
 import type { AnswerGiven, Confidence, ContentBundle, Option, Question } from "./types";
 
@@ -94,7 +95,27 @@ describe("builderPool", () => {
     expect(ids(builderPool(b, log, spec({ subject: "gs", status: "wrong" })))).toEqual(["p_2025_q102"]); // q101 fixed since
     expect(ids(builderPool(b, log, spec({ subject: "gs", status: "unsure" })))).toEqual(["p_2024_q101"]);
     expect(ids(builderPool(b, log, spec({ subject: "gs", status: "new" })))).toEqual([]);
-    expect(statusCounts(b, log, spec({ subject: "gs" }))).toEqual({ any: 3, new: 0, wrong: 1, unsure: 1 });
+    expect(statusCounts(b, log, spec({ subject: "gs" }))).toEqual({ any: 3, new: 0, wrong: 1, unsure: 1, mistakes: 0 });
+  });
+
+  it("open mistakes keep a question missed earlier even after one right answer, until fixed", () => {
+    const b = bundle();
+    const at = (id: string, chosen: Option, day: string) => ({ ...ans(id, chosen, "sure"), at: `${day}T10:00:00Z` });
+    // q101 missed, then answered right next day: still an open mistake (fixing needs 3 sure answers over 14 days).
+    const log = [at("p_2025_q101", "B", "2026-11-01"), at("p_2025_q101", "A", "2026-11-02"), at("p_2025_q190", "B", "2026-11-01")];
+    const open = openMistakeQuestionIds(mistakeStates(log, new Map(b.questions.map((x) => [x.id, x]))).values());
+    expect([...open].sort()).toEqual(["p_2025_q101", "p_2025_q190"]);
+    expect(ids(builderPool(b, log, spec({ status: "wrong" }), open))).toEqual(["p_2025_q190"]);
+    expect(ids(builderPool(b, log, spec({ status: "mistakes" }), open))).toEqual(["p_2025_q101", "p_2025_q190"]);
+    expect(ids(builderPool(b, log, spec({ subject: "gs", status: "mistakes" }), open))).toEqual(["p_2025_q101"]);
+    expect(statusCounts(b, log, spec(), open).mistakes).toBe(2);
+    expect(ids(builderPool(b, log, spec({ status: "mistakes" })))).toEqual([]); // no mistakes passed in
+  });
+
+  it("a fixed mistake's questions are not open", () => {
+    const fixed = { stage: "fixed", wrongQuestionIds: ["a"] } as const;
+    const logged = { stage: "logged", wrongQuestionIds: ["b", "c"] } as const;
+    expect([...openMistakeQuestionIds([fixed, logged] as never)]).toEqual(["b", "c"]);
   });
 });
 
@@ -147,6 +168,7 @@ describe("sanitizeSpec", () => {
   it("keeps a valid spec", () => {
     const s = spec({ subject: "gs", unitId: "x.gs.u4", topicId: "t.parl", paperIds: ["p_2024"], status: "wrong", count: 50 });
     expect(sanitizeSpec(s, b)).toEqual(s);
+    expect(sanitizeSpec(spec({ status: "mistakes" }), b).status).toBe("mistakes");
   });
   it("drops a unit or topic the bundle no longer has, or one outside the subject", () => {
     expect(sanitizeSpec(spec({ subject: "gs", unitId: "x.gs.u9", topicId: "t.const" }), b)).toMatchObject({ unitId: null, topicId: null });
